@@ -35,6 +35,7 @@ struct is_bfloat16 : std::false_type {};
      ((HIP_VERSION_MAJOR > 6 ||                               \
        (HIP_VERSION_MAJOR == 6 && HIP_VERSION_MINOR >= 4)) || \
       defined(__HIP_DEVICE_COMPILE__))) ||                    \
+    (defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)) || \
     defined(KOKKOS_ENABLE_SYCL)
 #define KOKKOS_HALF_IS_FULL_TYPE_ON_ARCH
 #endif
