@@ -6,7 +6,7 @@
 
 #include <Kokkos_Macros.hpp>
 
-#if defined(__HIPCC__)
+#if defined(__MACACC__)
 
 #include <Maca/Kokkos_Maca_Error.hpp>
 #include <Maca/Kokkos_Maca_GraphNodeKernel.hpp>
@@ -15,7 +15,7 @@
 #include <impl/Kokkos_GraphImpl_fwd.hpp>
 
 // Must use global variable on the device with Maca-Clang
-#ifdef __HIP__
+#ifdef __MACACC__
 #ifdef KOKKOS_ENABLE_MACA_RELOCATABLE_DEVICE_CODE
 __device__ __constant__ extern unsigned long
     kokkos_impl_hip_constant_memory_buffer[];
@@ -503,9 +503,16 @@ struct HIPParallelLaunchKernelInvoker<DriverType, LaunchBounds,
                 static_cast<const void *>(&driver), sizeof(DriverType));
 
     // Copy functor asynchronously from there to constant memory on the device
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmaca-compat"
+#endif
     KOKKOS_IMPL_MACA_SAFE_CALL(hip_instance->maca_memcpy_to_symbol_async_wrapper(
         HIP_SYMBOL(kokkos_impl_hip_constant_memory_buffer), staging,
         sizeof(DriverType), 0, hipMemcpyHostToDevice));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
     // Set hip device before launching kernel
     hip_instance->set_maca_device();
@@ -592,7 +599,7 @@ void hip_parallel_launch(const DriverType &driver, const dim3 &grid,
                          const MacaInternal *hip_instance,
                          const bool prefer_shmem) {
   if (!is_empty_launch(grid, block)) {
-    desul::ensure_hip_lock_arrays_on_device();
+    desul::Impl::ensure_lock_arrays_on_device();
   }
 
   if constexpr (DoGraph) {

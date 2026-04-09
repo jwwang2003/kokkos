@@ -45,6 +45,8 @@ constexpr bool gpu_arch_can_access_system_allocations() {
     defined(KOKKOS_ARCH_AMD_GFX1100) || defined(KOKKOS_ARCH_AMD_GFX1030) ||  \
     defined(KOKKOS_ARCH_AMD_GFX1201)
   return false;
+#else
+  return false;
 #endif
 }
 }  // namespace Kokkos::Impl

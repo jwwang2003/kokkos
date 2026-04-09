@@ -8,7 +8,7 @@
 #include <Kokkos_Macros.hpp>
 #include <Kokkos_BitManipulation.hpp>
 
-#if defined(__HIPCC__)
+#if defined(__MACACC__)
 
 #include <Maca/Kokkos_Maca_Instance.hpp>
 #include <Maca/Kokkos_Maca_KernelLaunch.hpp>

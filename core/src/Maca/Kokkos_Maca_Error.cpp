@@ -14,8 +14,8 @@ namespace Impl {
 void maca_internal_error_throw(hipError_t e, const char *name, const char *file,
                               const int line) {
   std::ostringstream out;
-  out << name << " error( " << hipGetErrorName(e)
-      << "): " << hipGetErrorString(e);
+  out << name << " error( " << mcGetErrorName(e)
+      << "): " << mcGetErrorString(e);
   if (file) {
     out << " " << file << ":" << line;
   }
@@ -25,8 +25,8 @@ void maca_internal_error_throw(hipError_t e, const char *name, const char *file,
 void maca_internal_error_abort(hipError_t e, const char *name, const char *file,
                               const int line) {
   std::ostringstream out;
-  out << name << " error( " << hipGetErrorName(e)
-      << "): " << hipGetErrorString(e);
+  out << name << " error( " << mcGetErrorName(e)
+      << "): " << mcGetErrorString(e);
   if (file) {
     out << " " << file << ":" << line;
   }

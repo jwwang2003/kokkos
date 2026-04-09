@@ -154,6 +154,10 @@ if(NOT desul_FOUND)
   endif()
 endif()
 
+if(KOKKOS_ENABLE_MACA AND TPL_MACA_INCLUDE_DIRS)
+  target_include_directories(kokkoscore SYSTEM PUBLIC $<BUILD_INTERFACE:${TPL_MACA_INCLUDE_DIRS}>)
+endif()
+
 if(Kokkos_ENABLE_IMPL_MDSPAN)
   if(Kokkos_ENABLE_MDSPAN_EXTERNAL)
     global_set(KOKKOS_MDSPAN_VERSION "unknown")

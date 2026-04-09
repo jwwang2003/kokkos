@@ -83,6 +83,22 @@ function(KOKKOS_ADD_EXECUTABLE ROOT_NAME)
   #All executables must link to all the kokkos targets
   #This is just private linkage because exe is final
   target_link_libraries(${EXE_NAME} PRIVATE Kokkos::kokkos)
+  if(KOKKOS_MACA_OPTIONS)
+    set(KOKKOS_MACA_LINK_OPTIONS)
+    set(KOKKOS_SKIP_NEXT_MACA_OPTION OFF)
+    foreach(_opt ${KOKKOS_MACA_OPTIONS})
+      if(KOKKOS_SKIP_NEXT_MACA_OPTION)
+        set(KOKKOS_SKIP_NEXT_MACA_OPTION OFF)
+      elseif(_opt STREQUAL "-x")
+        set(KOKKOS_SKIP_NEXT_MACA_OPTION ON)
+      else()
+        list(APPEND KOKKOS_MACA_LINK_OPTIONS ${_opt})
+      endif()
+    endforeach()
+    if(KOKKOS_MACA_LINK_OPTIONS)
+      target_link_options(${EXE_NAME} PRIVATE ${KOKKOS_MACA_LINK_OPTIONS})
+    endif()
+  endif()
 endfunction()
 
 function(KOKKOS_ADD_EXECUTABLE_AND_TEST ROOT_NAME)
@@ -121,6 +137,7 @@ function(KOKKOS_ADD_EXECUTABLE_AND_TEST ROOT_NAME)
   if(NOT
      (Kokkos_INSTALL_TESTING
       OR Kokkos_ENABLE_EXPERIMENTAL_CXX20_MODULES
+      OR Kokkos_ENABLE_MACA
       OR Kokkos_ENABLE_SYCL
       OR Kokkos_ENABLE_HPX
       OR (KOKKOS_CXX_COMPILER_ID STREQUAL "NVIDIA" AND KOKKOS_CXX_HOST_COMPILER_ID STREQUAL "MSVC"))
@@ -312,6 +329,11 @@ function(KOKKOS_SET_LIBRARY_PROPERTIES LIBRARY_NAME)
   if(KOKKOS_ENABLE_HIP)
     target_compile_options(${LIBRARY_NAME} PUBLIC $<$<COMPILE_LANGUAGE:${Kokkos_LANGUAGES}>:${KOKKOS_AMDGPU_OPTIONS}>)
     list(APPEND ALL_KOKKOS_COMPILER_FLAGS ${KOKKOS_AMDGPU_OPTIONS})
+  endif()
+
+  if(KOKKOS_ENABLE_MACA)
+    target_compile_options(${LIBRARY_NAME} PUBLIC $<$<COMPILE_LANGUAGE:${Kokkos_LANGUAGES}>:${KOKKOS_MACA_OPTIONS}>)
+    list(APPEND ALL_KOKKOS_COMPILER_FLAGS ${KOKKOS_MACA_OPTIONS})
   endif()
 
   list(LENGTH KOKKOS_XCOMPILER_OPTIONS XOPT_LENGTH)

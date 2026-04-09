@@ -53,7 +53,7 @@ class UniqueToken<Maca, UniqueTokenScope::Global> {
     int idx = blockIdx.x * (blockDim.x * blockDim.y) +
               threadIdx.y * blockDim.x + threadIdx.x;
     idx                            = idx % size();
-    unsigned long long active      = __ballot(1);
+    unsigned long long active      = __activemask();
     unsigned long long done_active = 0;
     bool done                      = false;
     while (active != done_active) {
@@ -68,12 +68,11 @@ class UniqueToken<Maca, UniqueTokenScope::Global> {
           idx = idx % size();
         }
       }
-      done_active = __ballot(done ? 1 : 0);
+      done_active = __ballot_sync(active, done ? 1 : 0);
     }
 
     // Make sure that all writes in the previous lock owner are visible to me
-    desul::atomic_thread_fence(desul::MemoryOrderAcquire(),
-                               desul::MemoryScopeDevice());
+    __threadfence();
     return idx;
   }
 
@@ -89,8 +88,7 @@ class UniqueToken<Maca, UniqueTokenScope::Global> {
   KOKKOS_INLINE_FUNCTION
   void release(size_type idx) const noexcept {
     // Make sure my writes are visible to the next lock owner
-    desul::atomic_thread_fence(desul::MemoryOrderRelease(),
-                               desul::MemoryScopeDevice());
+    __threadfence();
     (void)Kokkos::atomic_exchange(m_locks.data() + idx, 0);
   }
 };

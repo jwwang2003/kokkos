@@ -122,6 +122,11 @@ int get_device_count() {
   int count;
   KOKKOS_IMPL_HIP_SAFE_CALL(hipGetDeviceCount(&count));
   return count;
+#elif defined(KOKKOS_ENABLE_MACA)
+  int count;
+  KOKKOS_IMPL_MACA_SAFE_CALL(hipInit(0));
+  KOKKOS_IMPL_MACA_SAFE_CALL(hipGetDeviceCount(&count));
+  return count;
 #elif defined(KOKKOS_ENABLE_SYCL)
   return Kokkos::Impl::get_sycl_devices().size();
 #elif defined(KOKKOS_ENABLE_OPENACC)
@@ -165,6 +170,8 @@ std::vector<int> const& Kokkos::Impl::get_visible_devices() {
   int device = Cuda().cuda_device();
 #elif defined(KOKKOS_ENABLE_HIP)
   int device = HIP().hip_device();
+#elif defined(KOKKOS_ENABLE_MACA)
+  int device = Maca().maca_device();
 #elif defined(KOKKOS_ENABLE_OPENACC)
   int device = Experimental::OpenACC().acc_device_number();
 #elif defined(KOKKOS_ENABLE_SYCL)

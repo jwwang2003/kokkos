@@ -6,7 +6,7 @@
 
 #include <Kokkos_Macros.hpp>
 
-#if defined(__HIPCC__)
+#if defined(__MACACC__)
 
 #include <Maca/Kokkos_Maca.hpp>
 #include <Maca/Kokkos_Maca_Vectorization.hpp>

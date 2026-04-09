@@ -6,7 +6,7 @@
 
 #include <Kokkos_Macros.hpp>
 
-#if defined(__HIPCC__)
+#if defined(__MACACC__)
 
 #include <utility>
 #include <Kokkos_Parallel.hpp>
@@ -999,6 +999,6 @@ KOKKOS_INLINE_FUNCTION void single(
 
 }  // namespace Kokkos
 
-#endif /* defined( __HIPCC__ ) */
+#endif /* defined( __MACACC__ ) */
 
 #endif /* #ifndef KOKKOS_MACA_TEAM_HPP */
