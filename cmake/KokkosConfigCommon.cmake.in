@@ -15,7 +15,7 @@ endif()
 # Export Kokkos_ENABLE_<BACKEND> for each backend that was enabled.
 # NOTE: "Devices" is a little bit of a misnomer here.  These are really
 # backends, e.g. Kokkos_ENABLE_OPENMP, Kokkos_ENABLE_CUDA, Kokkos_ENABLE_HIP,
-# or Kokkos_ENABLE_SYCL.
+# Kokkos_ENABLE_MACA, or Kokkos_ENABLE_SYCL.
 foreach(DEV ${Kokkos_DEVICES})
   set(Kokkos_ENABLE_${DEV} ON)
 endforeach()

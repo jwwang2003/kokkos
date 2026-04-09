@@ -13,6 +13,7 @@ testing/
 /CMakeSettings.json
 /out/mytest
 CMakeUserPresets.json
+.DS_Store
 
 # build directories in source tree
 /build*
