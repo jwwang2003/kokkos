@@ -12,6 +12,9 @@
 #ifdef KOKKOS_ENABLE_HIP
 #include <HIP/Kokkos_HIP_Abort.hpp>
 #endif
+#ifdef KOKKOS_ENABLE_MACA
+#include <Maca/Kokkos_Maca_Abort.hpp>
+#endif
 #ifdef KOKKOS_ENABLE_SYCL
 #include <SYCL/Kokkos_SYCL_Abort.hpp>
 #endif
@@ -39,7 +42,8 @@ namespace Impl {
 
 #define KOKKOS_IMPL_ABORT_NORETURN
 
-#elif defined(KOKKOS_ENABLE_HIP) && defined(__HIP_DEVICE_COMPILE__)
+#elif (defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_MACA)) && \
+    defined(__HIP_DEVICE_COMPILE__)
 // HIP aborts
 #define KOKKOS_IMPL_ABORT_NORETURN [[noreturn]]
 #elif defined(KOKKOS_ENABLE_SYCL) && defined(__SYCL_DEVICE_ONLY__)
@@ -63,13 +67,15 @@ namespace Impl {
 #endif
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) ||     \
-    defined(KOKKOS_ENABLE_SYCL) || defined(KOKKOS_ENABLE_OPENACC) || \
-    defined(KOKKOS_ENABLE_NEXTSILICON)
+    defined(KOKKOS_ENABLE_MACA) || defined(KOKKOS_ENABLE_SYCL) ||    \
+    defined(KOKKOS_ENABLE_OPENACC) || defined(KOKKOS_ENABLE_NEXTSILICON)
 KOKKOS_IMPL_ABORT_NORETURN_DEVICE inline KOKKOS_IMPL_DEVICE_FUNCTION void
 device_abort(const char *const msg) {
 #if defined(KOKKOS_ENABLE_CUDA)
   ::Kokkos::Impl::cuda_abort(msg);
 #elif defined(KOKKOS_ENABLE_HIP)
+  ::Kokkos::Impl::hip_abort(msg);
+#elif defined(KOKKOS_ENABLE_MACA)
   ::Kokkos::Impl::hip_abort(msg);
 #elif defined(KOKKOS_ENABLE_SYCL)
   ::Kokkos::Impl::sycl_abort(msg);
