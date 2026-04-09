@@ -8,6 +8,7 @@
 
 #if defined(__MACACC__)
 
+#include <Maca/Kokkos_Maca_Abort.hpp>
 #include <Maca/Kokkos_Maca.hpp>
 #include <Maca/Kokkos_Maca_Vectorization.hpp>
 
@@ -109,7 +110,9 @@ struct HIPReductionsFunctor<FunctorType, true> {
     // block
     unsigned int num_teams_done = 0;
     if (threadIdx.x + threadIdx.y == 0) {
-      num_teams_done = Kokkos::atomic_fetch_add(global_flags, 1) + 1;
+      num_teams_done = atomicAdd(
+                           reinterpret_cast<unsigned int*>(global_flags), 1u) +
+                       1u;
     }
     bool is_last_block = false;
     if (__syncthreads_or(num_teams_done == gridDim.x)) {
@@ -207,7 +210,9 @@ struct HIPReductionsFunctor<FunctorType, false> {
     // block
     unsigned int num_teams_done = 0;
     if (threadIdx.x + threadIdx.y == 0) {
-      num_teams_done = Kokkos::atomic_fetch_add(global_flags, 1) + 1;
+      num_teams_done = atomicAdd(
+                           reinterpret_cast<unsigned int*>(global_flags), 1u) +
+                       1u;
     }
     bool is_last_block = false;
     if (__syncthreads_or(num_teams_done == gridDim.x)) {
@@ -357,7 +362,7 @@ __device__ bool hip_single_inter_block_reduce_scan_impl(
 
   // Must have power of two thread count
   if (BlockSizeMask & blockDim.y) {
-    Kokkos::abort(
+    Kokkos::Impl::hip_abort(
         "Maca::hip_single_inter_block_reduce_scan requires power-of-two "
         "blockDim");
   }
