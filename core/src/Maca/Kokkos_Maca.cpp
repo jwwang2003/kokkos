@@ -52,7 +52,15 @@ void Maca::impl_initialize(InitializationSettings const& settings) {
   // instead of erroring out because the runtime architecture string may not
   // exactly match the target selected at compile time.
   if (Kokkos::show_warnings()) {
-#ifdef KOKKOS_ARCH_AMD_GPU
+#ifdef KOKKOS_ARCH_MACA_GPU
+    if (std::string_view arch_name =
+            Impl::MacaInternal::m_deviceProp.mxArchName;
+        arch_name.find(KOKKOS_ARCH_MACA_GPU) != 0) {
+      std::cerr
+          << "Kokkos::Maca::initialize WARNING: running kernels compiled for "
+          << KOKKOS_ARCH_MACA_GPU << " on " << arch_name << " device.\n";
+    }
+#elif defined(KOKKOS_ARCH_AMD_GPU)
     if (std::string_view arch_name =
             Impl::MacaInternal::m_deviceProp.mxArchName;
         arch_name.find(KOKKOS_ARCH_AMD_GPU) != 0) {
