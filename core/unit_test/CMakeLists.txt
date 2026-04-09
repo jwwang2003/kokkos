@@ -7,6 +7,8 @@ set(KOKKOS_CUDA_FEATURE_LEVEL 999)
 set(KOKKOS_CUDA_NAME Cuda)
 set(KOKKOS_HIP_FEATURE_LEVEL 999)
 set(KOKKOS_HIP_NAME HIP)
+set(KOKKOS_MACA_FEATURE_LEVEL 999)
+set(KOKKOS_MACA_NAME Maca)
 set(KOKKOS_HPX_FEATURE_LEVEL 999)
 set(KOKKOS_HPX_NAME Experimental::HPX)
 set(KOKKOS_OPENMP_FEATURE_LEVEL 999)
@@ -85,7 +87,7 @@ endif()
 
 kokkos_add_executable(CoreTestCompileOnly SOURCES TestCompileMain.cpp ${COMPILE_ONLY_SOURCES})
 
-foreach(Tag Threads;Serial;OpenMP;Cuda;HPX;OpenACC;HIP;SYCL)
+foreach(Tag Threads;Serial;OpenMP;Cuda;HPX;OpenACC;HIP;Maca;SYCL)
   string(TOUPPER ${Tag} DEVICE)
   string(TOLOWER ${Tag} dir)
 
@@ -640,6 +642,15 @@ if(Kokkos_ENABLE_HIP)
   )
   kokkos_add_executable_and_test(
     CoreUnitTest_HIPInterOpStreamsMultiGPU SOURCES UnitTestMainInit.cpp hip/TestHIP_InterOp_StreamsMultiGPU.cpp
+  )
+endif()
+
+if(Kokkos_ENABLE_MACA)
+  kokkos_add_executable_and_test(
+    CoreUnitTest_Maca
+    SOURCES
+    UnitTestMainInit.cpp
+    ${Maca_SOURCES}
   )
 endif()
 

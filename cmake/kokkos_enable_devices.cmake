@@ -91,6 +91,12 @@ if(KOKKOS_ENABLE_HIP)
   list(APPEND DEVICE_SETUP_LIST HIP)
 endif()
 
+kokkos_device_option(MACA OFF DEVICE "Whether to build Maca backend")
+
+if(KOKKOS_ENABLE_MACA)
+  list(APPEND DEVICE_SETUP_LIST Maca)
+endif()
+
 kokkos_device_option(SYCL OFF DEVICE "Whether to build SYCL backend")
 
 ## SYCL has extra setup requirements, turn on Kokkos_Setup_SYCL.hpp in macros
