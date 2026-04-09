@@ -278,11 +278,7 @@ static_assert(Kokkos::Impl::MemorySpaceAccess<MacaSpace, MacaSpace>::assignable)
 template <>
 struct MemorySpaceAccess<HostSpace, MacaSpace> {
   enum : bool { assignable = false };
-#if !defined(KOKKOS_IMPL_MACA_UNIFIED_MEMORY)
-  enum : bool{accessible = false};
-#else
-  enum : bool { accessible = true };
-#endif
+  enum : bool { accessible = false };
   enum : bool { deepcopy = true };
 };
 
