@@ -42,9 +42,11 @@ namespace Impl {
 
 #define KOKKOS_IMPL_ABORT_NORETURN
 
-#elif (defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_MACA)) && \
-    defined(__HIP_DEVICE_COMPILE__)
+#elif defined(KOKKOS_ENABLE_HIP) && defined(__HIP_DEVICE_COMPILE__)
 // HIP aborts
+#define KOKKOS_IMPL_ABORT_NORETURN [[noreturn]]
+#elif defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+// Maca aborts
 #define KOKKOS_IMPL_ABORT_NORETURN [[noreturn]]
 #elif defined(KOKKOS_ENABLE_SYCL) && defined(__SYCL_DEVICE_ONLY__)
 // FIXME_SYCL SYCL doesn't abort

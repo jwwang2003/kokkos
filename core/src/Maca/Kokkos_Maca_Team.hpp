@@ -85,7 +85,7 @@ class MacaTeamMember {
   KOKKOS_INLINE_FUNCTION int league_rank() const { return m_league_rank; }
   KOKKOS_INLINE_FUNCTION int league_size() const { return m_league_size; }
   KOKKOS_INLINE_FUNCTION int team_rank() const {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     return threadIdx.y;
 #else
     return 0;
@@ -93,7 +93,7 @@ class MacaTeamMember {
   }
 
   KOKKOS_INLINE_FUNCTION int team_size() const {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     return blockDim.y;
 #else
     return 0;
@@ -101,7 +101,7 @@ class MacaTeamMember {
   }
 
   KOKKOS_INLINE_FUNCTION void team_barrier() const {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     if (1 == blockDim.z)
       __syncthreads();  // team == block
     else
@@ -114,7 +114,7 @@ class MacaTeamMember {
   template <class ValueType>
   KOKKOS_INLINE_FUNCTION void team_broadcast(ValueType& val,
                                              const int& thread_id) const {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     if (blockDim.z == 1) {  // team == block
       __syncthreads();
       // Wait for shared data write until all threads arrive here
@@ -166,7 +166,7 @@ class MacaTeamMember {
   KOKKOS_INLINE_FUNCTION std::enable_if_t<is_reducer<ReducerType>::value>
   team_reduce(ReducerType const& reducer,
               typename ReducerType::value_type& value) const noexcept {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     typename Kokkos::Impl::FunctorAnalysis<
         FunctorPatternInterface::REDUCE, TeamPolicy<Maca>, ReducerType,
         typename ReducerType::value_type>::Reducer wrapped_reducer(reducer);
@@ -183,7 +183,7 @@ class MacaTeamMember {
   impl_team_reduce(
       WrappedReducerType const& wrapped_reducer,
       typename WrappedReducerType::value_type& value) const noexcept {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     hip_intra_block_shuffle_reduction(value, wrapped_reducer, blockDim.y);
 #else
     (void)wrapped_reducer;
@@ -204,7 +204,7 @@ class MacaTeamMember {
   template <typename Type>
   KOKKOS_INLINE_FUNCTION Type team_scan(const Type& value,
                                         Type* const global_accum) const {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     Type* const base_data = reinterpret_cast<Type*>(m_team_reduce);
 
     __syncthreads();  // Don't write in to shared data until all threads have
@@ -261,7 +261,7 @@ class MacaTeamMember {
   KOKKOS_INLINE_FUNCTION static std::enable_if_t<is_reducer<ReducerType>::value>
   vector_reduce(ReducerType const& reducer,
                 typename ReducerType::value_type& value) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     using value_type = typename ReducerType::value_type;
     using wrapped_reducer_type =
         typename Impl::FunctorAnalysis<Impl::FunctorPatternInterface::REDUCE,
@@ -281,7 +281,7 @@ class MacaTeamMember {
       is_reducer<WrappedReducerType>::value>
   impl_vector_reduce(WrappedReducerType const& wrapped_reducer,
                      typename WrappedReducerType::value_type& value) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
     if (blockDim.x == 1) return;
 
     // Intra vector lane shuffle reduction:
@@ -473,7 +473,7 @@ KOKKOS_INLINE_FUNCTION void parallel_for(
     const Impl::TeamThreadRangeBoundariesStruct<iType, Impl::MacaTeamMember>&
         loop_boundaries,
     const Closure& closure) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   for (iType i = loop_boundaries.start + threadIdx.y; i < loop_boundaries.end;
        i += blockDim.y)
     closure(i);
@@ -498,7 +498,7 @@ KOKKOS_INLINE_FUNCTION std::enable_if_t<Kokkos::is_reducer<ReducerType>::value>
 parallel_reduce(const Impl::TeamThreadRangeBoundariesStruct<
                     iType, Impl::MacaTeamMember>& loop_boundaries,
                 const Closure& closure, const ReducerType& reducer) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   using value_type            = typename ReducerType::value_type;
   using functor_analysis_type = typename Impl::FunctorAnalysis<
       Impl::FunctorPatternInterface::REDUCE,
@@ -635,7 +635,7 @@ KOKKOS_INLINE_FUNCTION void parallel_for(
     const Impl::TeamVectorRangeBoundariesStruct<iType, Impl::MacaTeamMember>&
         loop_boundaries,
     const Closure& closure) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   for (iType i = loop_boundaries.start + threadIdx.y * blockDim.x + threadIdx.x;
        i < loop_boundaries.end; i += blockDim.y * blockDim.x)
     closure(i);
@@ -650,7 +650,7 @@ KOKKOS_INLINE_FUNCTION std::enable_if_t<Kokkos::is_reducer<ReducerType>::value>
 parallel_reduce(const Impl::TeamVectorRangeBoundariesStruct<
                     iType, Impl::MacaTeamMember>& loop_boundaries,
                 const Closure& closure, const ReducerType& reducer) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   using value_type            = typename ReducerType::value_type;
   using functor_analysis_type = typename Impl::FunctorAnalysis<
       Impl::FunctorPatternInterface::REDUCE,
@@ -719,7 +719,7 @@ KOKKOS_INLINE_FUNCTION void parallel_for(
     const Impl::ThreadVectorRangeBoundariesStruct<iType, Impl::MacaTeamMember>&
         loop_boundaries,
     const Closure& closure) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   for (iType i = loop_boundaries.start + threadIdx.x; i < loop_boundaries.end;
        i += blockDim.x) {
     closure(i);
@@ -748,7 +748,7 @@ KOKKOS_INLINE_FUNCTION std::enable_if_t<is_reducer<ReducerType>::value>
 parallel_reduce(Impl::ThreadVectorRangeBoundariesStruct<
                     iType, Impl::MacaTeamMember> const& loop_boundaries,
                 Closure const& closure, ReducerType const& reducer) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   using value_type            = typename ReducerType::value_type;
   using functor_analysis_type = typename Impl::FunctorAnalysis<
       Impl::FunctorPatternInterface::REDUCE,
@@ -827,7 +827,7 @@ KOKKOS_INLINE_FUNCTION std::enable_if_t<Kokkos::is_reducer<ReducerType>::value>
 parallel_scan(const Impl::ThreadVectorRangeBoundariesStruct<
                   iType, Impl::MacaTeamMember>& loop_boundaries,
               const Closure& closure, const ReducerType& reducer) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   using value_type = typename ReducerType::value_type;
   value_type accum;
   reducer.init(accum);
@@ -950,7 +950,7 @@ template <class FunctorType>
 KOKKOS_INLINE_FUNCTION void single(
     const Impl::VectorSingleStruct<Impl::MacaTeamMember>&,
     const FunctorType& lambda) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   if (threadIdx.x == 0) lambda();
 #else
   (void)lambda;
@@ -961,7 +961,7 @@ template <class FunctorType>
 KOKKOS_INLINE_FUNCTION void single(
     const Impl::ThreadSingleStruct<Impl::MacaTeamMember>&,
     const FunctorType& lambda) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   if (threadIdx.x == 0 && threadIdx.y == 0) lambda();
 #else
   (void)lambda;
@@ -972,7 +972,7 @@ template <class FunctorType, class ValueType>
 KOKKOS_INLINE_FUNCTION void single(
     const Impl::VectorSingleStruct<Impl::MacaTeamMember>&,
     const FunctorType& lambda, ValueType& val) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   if (threadIdx.x == 0) lambda(val);
   Impl::in_place_shfl(val, val, 0, blockDim.x);
 #else
@@ -985,7 +985,7 @@ template <class FunctorType, class ValueType>
 KOKKOS_INLINE_FUNCTION void single(
     const Impl::ThreadSingleStruct<Impl::MacaTeamMember>& single_struct,
     const FunctorType& lambda, ValueType& val) {
-#ifdef __HIP_DEVICE_COMPILE__
+#ifdef __MACA_ARCH__
   if (threadIdx.x == 0 && threadIdx.y == 0) {
     lambda(val);
   }

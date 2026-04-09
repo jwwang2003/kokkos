@@ -154,6 +154,7 @@ static constexpr bool desul_impl_omp_on_host() { return false; }
 #if !defined(DESUL_IF_ON_HOST) && !defined(DESUL_IF_ON_DEVICE)
 #if (defined(DESUL_ATOMICS_ENABLE_CUDA) && defined(__CUDA_ARCH__)) ||         \
     (defined(DESUL_ATOMICS_ENABLE_HIP) && defined(__HIP_DEVICE_COMPILE__)) || \
+    (defined(DESUL_ATOMICS_ENABLE_HIP) && defined(__MACA_ARCH__)) ||          \
     (defined(DESUL_ATOMICS_ENABLE_SYCL) && defined(__SYCL_DEVICE_ONLY__))
 #define DESUL_IF_ON_DEVICE(CODE) \
   { DESUL_IMPL_STRIP_PARENS(CODE) }
