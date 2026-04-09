@@ -34,7 +34,11 @@ struct MacaTraits {
   static constexpr int WarpIndexMask  = 0x001f; /* hexadecimal for 31 */
   static constexpr int WarpIndexShift = 5;      /* WarpSize == 1 << WarpShift*/
 #else
-#error "Unexpected AMD GFX architecture!"
+  // MXMACA targets like xcore1000 do not currently map onto Kokkos' AMD GFX
+  // arch list. Use the conservative wavefront size used by most HIP-like GPUs.
+  static constexpr int WarpSize       = 64;
+  static constexpr int WarpIndexMask  = 0x003f;
+  static constexpr int WarpIndexShift = 6;
 #endif
   static constexpr int ConservativeThreadsPerBlock =
       256;  // conservative fallback blocksize in case of spills

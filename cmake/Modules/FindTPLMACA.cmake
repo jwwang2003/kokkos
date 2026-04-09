@@ -1,32 +1,29 @@
-if(NOT MACA_ROOT AND DEFINED ENV{MACA_ROOT})
-  set(MACA_ROOT $ENV{MACA_ROOT})
+if(NOT MACA_PATH AND DEFINED ENV{MACA_PATH})
+  set(MACA_PATH $ENV{MACA_PATH})
 endif()
-if(NOT MACA_ROOT AND DEFINED ENV{MACA_PATH})
-  set(MACA_ROOT $ENV{MACA_PATH})
-endif()
-if(NOT MACA_ROOT)
-  set(MACA_ROOT /opt/maca)
+if(NOT MACA_PATH)
+  set(MACA_PATH /opt/maca)
 endif()
 
 find_path(TPL_MACA_INCLUDE_DIRS
-  NAMES mc/mc_runtime_api.h
-  HINTS ${MACA_ROOT}
+  NAMES mc/mc_runtime_api.h mcr/mc_runtime_api.h
+  HINTS ${MACA_PATH}
   PATH_SUFFIXES include
 )
 
 find_library(TPL_MACA_RUNTIME_LIBRARIES
-  NAMES mc_runtime
-  HINTS ${MACA_ROOT}
+  NAMES mc_runtime mcruntime
+  HINTS ${MACA_PATH}
   PATH_SUFFIXES lib lib64
 )
 
 if(TPL_MACA_RUNTIME_LIBRARIES)
   kokkos_create_imported_tpl(MACA INTERFACE
     LINK_LIBRARIES ${TPL_MACA_RUNTIME_LIBRARIES}
-    INCLUDE_DIRS ${TPL_MACA_INCLUDE_DIRS}
+    INCLUDES ${TPL_MACA_INCLUDE_DIRS}
   )
 else()
   kokkos_create_imported_tpl(MACA INTERFACE
-    INCLUDE_DIRS ${TPL_MACA_INCLUDE_DIRS}
+    INCLUDES ${TPL_MACA_INCLUDE_DIRS}
   )
 endif()

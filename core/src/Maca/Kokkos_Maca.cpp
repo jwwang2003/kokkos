@@ -49,16 +49,22 @@ void Maca::impl_initialize(InitializationSettings const& settings) {
   KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(maca_device_id));
 
   // Check that we are running on the expected architecture. We print a warning
-  // instead of erroring out because AMD does not guarantee that gcnArchName
-  // will always contain the gfx flag.
+  // instead of erroring out because the runtime architecture string may not
+  // exactly match the target selected at compile time.
   if (Kokkos::show_warnings()) {
+#ifdef KOKKOS_ARCH_AMD_GPU
     if (std::string_view arch_name =
-            Impl::MacaInternal::m_deviceProp.gcnArchName;
+            Impl::MacaInternal::m_deviceProp.mxArchName;
         arch_name.find(KOKKOS_ARCH_AMD_GPU) != 0) {
       std::cerr
           << "Kokkos::Maca::initialize WARNING: running kernels compiled for "
           << KOKKOS_ARCH_AMD_GPU << " on " << arch_name << " device.\n";
     }
+#else
+    std::cerr << "Kokkos::Maca::initialize WARNING: no Kokkos MACA target "
+                 "architecture macro is set; runtime device is "
+              << Impl::MacaInternal::m_deviceProp.mxArchName << ".\n";
+#endif
   }
 
   // Print a warning if the user did not select the right GFX942 architecture

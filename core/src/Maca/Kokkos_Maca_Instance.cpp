@@ -102,7 +102,7 @@ void MacaInternal::print_configuration(std::ostream &s) const {
     std::string gpu_type = hipProp.integrated == 1 ? "APU" : "dGPU";
 
     s << "Kokkos::Maca[ " << i << " ] "
-      << "gcnArch " << hipProp.gcnArchName;
+      << "mxArch " << hipProp.mxArchName;
     if (m_hipDev == i)
       s << " : Selected";
     else

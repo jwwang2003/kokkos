@@ -11,20 +11,16 @@ The backend is intended to be built with the MXMACA toolchain (`mxcc`) and MXMAC
 - MXMACA headers available, especially:
   - `mc/mc_runtime.h`
   - `mc/mc_runtime_api.h`
-- MXMACA runtime library available, for example under `${MACA_ROOT}/lib` or `${MACA_ROOT}/lib64`
+- MXMACA runtime library available, for example under `${MACA_PATH}/lib` or `${MACA_PATH}/lib64`
 
 Recommended environment:
 
 ```bash
-export MACA_ROOT=/opt/maca
 export MACA_PATH=/opt/maca
-export PATH=$MACA_ROOT/mxgpu_llvm/bin:$PATH
-```
-
-If `mxcc` is not on `PATH`, use:
-
-```bash
-export CXX=$MACA_ROOT/mxgpu_llvm/bin/mxcc
+export CUCC_PATH=/opt/maca/tools/cu-bridge
+export PATH=$PATH:${CUCC_PATH}/tools:${CUCC_PATH}/bin
+export CUCC_CMAKE_ENTRY=2
+export CUDA_PATH=${CUCC_PATH}
 ```
 
 ## Configure
@@ -131,8 +127,8 @@ ctest --test-dir build-maca -R Maca --output-on-failure
 Check that the MXMACA headers are visible:
 
 ```bash
-test -f ${MACA_ROOT}/include/mc/mc_runtime.h
-test -f ${MACA_ROOT}/include/mc/mc_runtime_api.h
+test -f ${MACA_PATH}/include/mc/mc_runtime.h
+test -f ${MACA_PATH}/include/mc/mc_runtime_api.h
 ```
 
 Check the compiler:
@@ -181,4 +177,4 @@ If configure succeeds but compilation fails immediately with:
 fatal error: 'mc/mc_runtime.h' file not found
 ```
 
-then the MXMACA SDK headers are not on the compiler include path. Fix that first by setting `MACA_ROOT`, using `mxcc` as the compiler, and ensuring the SDK is installed correctly.
+then the MXMACA SDK headers are not on the compiler include path. Fix that first by setting `MACA_PATH`, exporting the cu-bridge environment correctly, using `mxcc` as the compiler, and ensuring the SDK is installed correctly.
