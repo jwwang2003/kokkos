@@ -629,20 +629,10 @@ struct Random_UniqueIndex {
   }
 };
 
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-
-#if defined(KOKKOS_ENABLE_CUDA)
-#define KOKKOS_IMPL_EXECUTION_SPACE_CUDA_OR_HIP Kokkos::Cuda
-#elif defined(KOKKOS_ENABLE_HIP)
-#define KOKKOS_IMPL_EXECUTION_SPACE_CUDA_OR_HIP Kokkos::HIP
-#endif
-
+#ifdef KOKKOS_ENABLE_CUDA
 template <class MemorySpace>
-struct Random_UniqueIndex<
-    Kokkos::Device<KOKKOS_IMPL_EXECUTION_SPACE_CUDA_OR_HIP, MemorySpace>> {
-  using locks_view_type =
-      View<int**, Kokkos::Device<KOKKOS_IMPL_EXECUTION_SPACE_CUDA_OR_HIP,
-                                 MemorySpace>>;
+struct Random_UniqueIndex<Kokkos::Device<Kokkos::Cuda, MemorySpace>> {
+  using locks_view_type = View<int**, Kokkos::Device<Kokkos::Cuda, MemorySpace>>;
   KOKKOS_FUNCTION
   static int get_state_idx(const locks_view_type& locks_) {
     KOKKOS_IF_ON_DEVICE((
@@ -664,9 +654,61 @@ struct Random_UniqueIndex<
     KOKKOS_IF_ON_HOST(((void)locks_; return 0;))
   }
 };
+#endif
 
-#undef KOKKOS_IMPL_EXECUTION_SPACE_CUDA_OR_HIP
+#ifdef KOKKOS_ENABLE_HIP
+template <class MemorySpace>
+struct Random_UniqueIndex<Kokkos::Device<Kokkos::HIP, MemorySpace>> {
+  using locks_view_type = View<int**, Kokkos::Device<Kokkos::HIP, MemorySpace>>;
+  KOKKOS_FUNCTION
+  static int get_state_idx(const locks_view_type& locks_) {
+    KOKKOS_IF_ON_DEVICE((
+        const int i_offset =
+            (threadIdx.x * blockDim.y + threadIdx.y) * blockDim.z + threadIdx.z;
+        int i =
+            (((blockIdx.x * gridDim.y + blockIdx.y) * gridDim.z + blockIdx.z) *
+                 blockDim.x * blockDim.y * blockDim.z +
+             i_offset) %
+            locks_.extent(0);
+        while (Kokkos::atomic_compare_exchange(&locks_(i, 0), 0, 1)) {
+          i += blockDim.x * blockDim.y * blockDim.z;
+          if (i >= static_cast<int>(locks_.extent(0))) {
+            i = i_offset;
+          }
+        }
 
+        return i;))
+    KOKKOS_IF_ON_HOST(((void)locks_; return 0;))
+  }
+};
+#endif
+
+#ifdef KOKKOS_ENABLE_MACA
+template <class MemorySpace>
+struct Random_UniqueIndex<Kokkos::Device<Kokkos::Maca, MemorySpace>> {
+  using locks_view_type =
+      View<int**, Kokkos::Device<Kokkos::Maca, MemorySpace>>;
+  KOKKOS_FUNCTION
+  static int get_state_idx(const locks_view_type& locks_) {
+    KOKKOS_IF_ON_DEVICE((
+        const int i_offset =
+            (threadIdx.x * blockDim.y + threadIdx.y) * blockDim.z + threadIdx.z;
+        int i =
+            (((blockIdx.x * gridDim.y + blockIdx.y) * gridDim.z + blockIdx.z) *
+                 blockDim.x * blockDim.y * blockDim.z +
+             i_offset) %
+            locks_.extent(0);
+        while (Kokkos::atomic_compare_exchange(&locks_(i, 0), 0, 1)) {
+          i += blockDim.x * blockDim.y * blockDim.z;
+          if (i >= static_cast<int>(locks_.extent(0))) {
+            i = i_offset;
+          }
+        }
+
+        return i;))
+    KOKKOS_IF_ON_HOST(((void)locks_; return 0;))
+  }
+};
 #endif
 
 #ifdef KOKKOS_ENABLE_SYCL
@@ -885,6 +927,9 @@ class Random_XorShift64 {
   double normal(const double& mean, const double& std_dev = 1.0) {
     return mean + normal() * std_dev;
   }
+
+  KOKKOS_INLINE_FUNCTION
+  int impl_test_state_idx() const { return state_idx_; }
 };
 
 template <class DeviceType = Kokkos::DefaultExecutionSpace>
@@ -1156,6 +1201,9 @@ class Random_XorShift1024 {
   double normal(const double& mean, const double& std_dev = 1.0) {
     return mean + normal() * std_dev;
   }
+
+  KOKKOS_INLINE_FUNCTION
+  int impl_test_state_idx() const { return state_idx_; }
 };
 
 template <class DeviceType = Kokkos::DefaultExecutionSpace>

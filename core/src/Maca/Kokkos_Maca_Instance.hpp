@@ -174,6 +174,7 @@ class MacaInternal {
   static std::mutex scratchFunctorMutex;
 
   hipStream_t m_stream = nullptr;
+  bool m_allow_post_finalize_destruction = false;
   uint32_t m_instance_id =
       Kokkos::Tools::Experimental::Impl::idForInstance<Maca>(
           reinterpret_cast<uintptr_t>(this));
