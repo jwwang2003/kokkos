@@ -9,6 +9,7 @@ static_assert(false,
 #ifndef KOKKOS_MDSPAN_ACCESSOR_HPP
 #define KOKKOS_MDSPAN_ACCESSOR_HPP
 
+#include <Kokkos_Atomic.hpp>
 #include <Kokkos_Macros.hpp>
 #include <Kokkos_Concepts.hpp>
 #include <Kokkos_Core_fwd.hpp>
@@ -183,11 +184,101 @@ struct SpaceAwareAccessor<AnonymousSpace, NestedAccessor> {
 
 // Like atomic_accessor_relaxed proposed for ISO C++26 but with
 // defaulted memory scope - similar to how desul's AtomicRef has a memory scope
-template <class ElementType, class MemoryScope = desul::MemoryScopeDevice>
+template <class ElementType>
+class KokkosAtomicAccessorRef {
+  using value_type_no_cv = std::remove_cv_t<ElementType>;
+
+  value_type_no_cv* ptr_;
+
+ public:
+  using value_type = value_type_no_cv;
+
+  KOKKOS_INLINE_FUNCTION
+  explicit KokkosAtomicAccessorRef(ElementType& obj) : ptr_(&obj) {}
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator=(value_type desired) const noexcept {
+    Kokkos::atomic_store(ptr_, desired);
+    return desired;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  operator value_type() const noexcept { return Kokkos::atomic_load(ptr_); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type load() const noexcept { return Kokkos::atomic_load(ptr_); }
+
+  KOKKOS_INLINE_FUNCTION
+  void store(value_type desired) const noexcept {
+    Kokkos::atomic_store(ptr_, desired);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type exchange(value_type desired) const noexcept {
+    return Kokkos::atomic_exchange(ptr_, desired);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_add(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_add(ptr_, arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type add_fetch(value_type arg) const noexcept {
+    return fetch_add(arg) + arg;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_sub(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_sub(ptr_, arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type sub_fetch(value_type arg) const noexcept {
+    return fetch_sub(arg) - arg;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator+=(value_type arg) const noexcept {
+    return add_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator-=(value_type arg) const noexcept {
+    return sub_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator++() const noexcept { return add_fetch(value_type(1)); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator++(int) const noexcept {
+    return fetch_add(value_type(1));
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator--() const noexcept { return sub_fetch(value_type(1)); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator--(int) const noexcept {
+    return fetch_sub(value_type(1));
+  }
+};
+
+template <class ElementType, class MemorySpace,
+          class MemoryScope = desul::MemoryScopeDevice>
 struct AtomicAccessorRelaxed {
   using element_type = ElementType;
-  using reference =
-      desul::AtomicRef<ElementType, desul::MemoryOrderRelaxed, MemoryScope>;
+  using reference = std::conditional_t<
+#ifdef KOKKOS_ENABLE_MACA
+      std::is_same_v<MemorySpace, Kokkos::MacaSpace> ||
+          std::is_same_v<MemorySpace, Kokkos::MacaManagedSpace>,
+      KokkosAtomicAccessorRef<ElementType>,
+#else
+      false,
+      KokkosAtomicAccessorRef<ElementType>,
+#endif
+      desul::AtomicRef<ElementType, desul::MemoryOrderRelaxed, MemoryScope>>;
   using data_handle_type = ElementType*;
   using offset_policy    = AtomicAccessorRelaxed;
 
@@ -205,7 +296,15 @@ struct AtomicAccessorRelaxed {
             std::enable_if_t<std::is_convertible_v<
                 OtherElementType (*)[], element_type (*)[]>>* = nullptr>
   KOKKOS_FUNCTION constexpr AtomicAccessorRelaxed(
-      AtomicAccessorRelaxed<OtherElementType, MemoryScope>) noexcept {}
+      AtomicAccessorRelaxed<OtherElementType, MemorySpace, MemoryScope>)
+      noexcept {}
+
+  template <class OtherElementType, class OtherMemorySpace,
+            std::enable_if_t<std::is_convertible_v<
+                OtherElementType (*)[], element_type (*)[]>>* = nullptr>
+  KOKKOS_FUNCTION constexpr AtomicAccessorRelaxed(
+      AtomicAccessorRelaxed<OtherElementType, OtherMemorySpace, MemoryScope>)
+      noexcept {}
 
   template <class OtherElementType,
             std::enable_if_t<std::is_convertible_v<
@@ -460,13 +559,15 @@ using CheckedReferenceCountedAccessor =
 template <class ElementType, class MemorySpace,
           class MemoryScope = desul::MemoryScopeDevice>
 using CheckedRelaxedAtomicAccessor =
-    SpaceAwareAccessor<MemorySpace, AtomicAccessorRelaxed<ElementType>>;
+    SpaceAwareAccessor<MemorySpace,
+                       AtomicAccessorRelaxed<ElementType, MemorySpace>>;
 
 template <class ElementType, class MemorySpace,
           class MemoryScope = desul::MemoryScopeDevice>
 using CheckedReferenceCountedRelaxedAtomicAccessor = SpaceAwareAccessor<
     MemorySpace, ReferenceCountedAccessor<ElementType, MemorySpace,
-                                          AtomicAccessorRelaxed<ElementType>>>;
+                                          AtomicAccessorRelaxed<ElementType,
+                                                                MemorySpace>>>;
 
 }  // namespace Impl
 }  // namespace Kokkos
