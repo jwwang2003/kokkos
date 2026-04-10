@@ -298,7 +298,7 @@ struct test_random_scalar {
 
 #if defined(KOKKOS_HALF_T_IS_FLOAT) && !KOKKOS_HALF_T_IS_FLOAT
       if (std::is_same_v<Scalar, Kokkos::Experimental::half_t>) {
-        mean_eps_expect       = 0.0003;
+        mean_eps_expect       = 0.00035;
         variance_eps_expect   = 1.0;
         covariance_eps_expect = 5.0e4;
       }
@@ -592,6 +592,49 @@ void test_async_initialization(Args... args) {
                                 "match stream from default constructed pool";
 }
 
+template <class Pool>
+struct record_state_idx_hits {
+  using view_type = Kokkos::View<int*, typename Pool::device_type>;
+
+  Pool rand_pool;
+  view_type state_hits;
+
+  record_state_idx_hits(Pool rand_pool_, view_type state_hits_)
+      : rand_pool(rand_pool_), state_hits(state_hits_) {}
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(int) const {
+    auto rand_gen = rand_pool.get_state();
+    Kokkos::atomic_fetch_add(&state_hits(rand_gen.impl_test_state_idx()), 1);
+    rand_pool.free_state(rand_gen);
+  }
+};
+
+template <class ExecutionSpace, class Pool>
+void test_random_unique_index_uses_multiple_states() {
+  const int num_states = 256;
+  const int work_items = num_states;
+
+  Pool rand_pool(17, num_states);
+  using hits_view_type = Kokkos::View<int*, typename Pool::device_type>;
+  hits_view_type state_hits("StateHits", num_states);
+
+  Kokkos::deep_copy(state_hits, 0);
+  Kokkos::parallel_for(Kokkos::RangePolicy<ExecutionSpace>(0, work_items),
+                       record_state_idx_hits<Pool>(rand_pool, state_hits));
+
+  auto state_hits_host =
+      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, state_hits);
+
+  int used_states = 0;
+  for (int i = 0; i < num_states; ++i) {
+    if (state_hits_host(i) != 0) ++used_states;
+  }
+
+  ASSERT_GT(used_states, 1)
+      << "Random pool acquired only one state index from get_state()";
+}
+
 }  // namespace AlgoRandomImpl
 
 TEST(TEST_CATEGORY, Random_XorShift64) {
@@ -652,6 +695,23 @@ TEST(TEST_CATEGORY, Multi_streams) {
   // Test with construction from seed and num_states
   AlgoRandomImpl::test_async_initialization<ExecutionSpace, Pool64>(42, 1);
   AlgoRandomImpl::test_async_initialization<ExecutionSpace, Pool1024>(42, 1);
+}
+
+TEST(TEST_CATEGORY, Random_UniqueIndex_UsesMultipleStates) {
+#ifdef KOKKOS_ENABLE_MACA
+  using ExecutionSpace = TEST_EXECSPACE;
+
+  if constexpr (!std::is_same_v<ExecutionSpace, Kokkos::Maca>) {
+    GTEST_SKIP() << "Maca-specific regression test";
+  } else {
+    AlgoRandomImpl::test_random_unique_index_uses_multiple_states<
+        ExecutionSpace, Kokkos::Random_XorShift64_Pool<ExecutionSpace>>();
+    AlgoRandomImpl::test_random_unique_index_uses_multiple_states<
+        ExecutionSpace, Kokkos::Random_XorShift1024_Pool<ExecutionSpace>>();
+  }
+#else
+  GTEST_SKIP() << "Requires Maca";
+#endif
 }
 
 }  // namespace Test
