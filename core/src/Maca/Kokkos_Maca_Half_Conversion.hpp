@@ -284,13 +284,13 @@ KOKKOS_INLINE_FUNCTION
 template <class T>
 KOKKOS_INLINE_FUNCTION std::enable_if_t<std::is_same_v<T, long>, T>
 cast_from_bhalf(bhalf_t val) {
-  return static_cast<T>(bhalf_t::impl_type(val));
+  return static_cast<T>(cast_from_bhalf<long long>(val));
 }
 
 template <class T>
 KOKKOS_INLINE_FUNCTION std::enable_if_t<std::is_same_v<T, unsigned long>, T>
 cast_from_bhalf(bhalf_t val) {
-  return static_cast<T>(bhalf_t::impl_type(val));
+  return static_cast<T>(cast_from_bhalf<unsigned long long>(val));
 }
 
 }  // namespace Kokkos::Experimental

@@ -36,6 +36,9 @@ inline __device__ T *kokkos_impl_hip_shared_memory() {
 namespace Kokkos {
 namespace Impl {
 
+#define KOKKOS_IMPL_MACA_LAUNCH_BOUNDS(maxTperB, minBperSM) \
+  __launch_bounds__(maxTperB)
+
 // The hip_parallel_launch_*_memory code is identical to the cuda code
 template <typename DriverType>
 __global__ static void hip_parallel_launch_constant_memory() {
@@ -46,7 +49,7 @@ __global__ static void hip_parallel_launch_constant_memory() {
 }
 
 template <typename DriverType, unsigned int maxTperB, unsigned int minBperSM>
-__global__ __launch_bounds__(
+__global__ KOKKOS_IMPL_MACA_LAUNCH_BOUNDS(
     maxTperB, minBperSM) static void hip_parallel_launch_constant_memory() {
   const DriverType &driver = *(reinterpret_cast<const DriverType *>(
       kokkos_impl_hip_constant_memory_buffer));
@@ -61,10 +64,9 @@ __global__ static void hip_parallel_launch_local_memory(
 }
 
 template <class DriverType, unsigned int maxTperB, unsigned int minBperSM>
-__global__ __launch_bounds__(
-    maxTperB,
-    minBperSM) static void hip_parallel_launch_local_memory(const DriverType
-                                                                driver) {
+__global__ KOKKOS_IMPL_MACA_LAUNCH_BOUNDS(
+    maxTperB, minBperSM) static void hip_parallel_launch_local_memory(
+    const DriverType driver) {
   driver();
 }
 
@@ -75,10 +77,9 @@ __global__ static void hip_parallel_launch_global_memory(
 }
 
 template <typename DriverType, unsigned int maxTperB, unsigned int minBperSM>
-__global__ __launch_bounds__(
-    maxTperB,
-    minBperSM) static void hip_parallel_launch_global_memory(const DriverType
-                                                                 *driver) {
+__global__ KOKKOS_IMPL_MACA_LAUNCH_BOUNDS(
+    maxTperB, minBperSM) static void hip_parallel_launch_global_memory(
+    const DriverType *driver) {
   driver->operator()();
 }
 
@@ -88,6 +89,8 @@ enum class MacaLaunchMechanism : unsigned {
   GlobalMemory   = 2,
   LocalMemory    = 4
 };
+
+#undef KOKKOS_IMPL_MACA_LAUNCH_BOUNDS
 
 constexpr inline MacaLaunchMechanism operator|(MacaLaunchMechanism p1,
                                               MacaLaunchMechanism p2) {
