@@ -20,7 +20,8 @@ import kokkos.core;
 #include <cfloat>
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || \
-    defined(KOKKOS_ENABLE_SYCL) || defined(KOKKOS_ENABLE_OPENACC)
+    defined(KOKKOS_ENABLE_SYCL) || defined(KOKKOS_ENABLE_OPENACC) || \
+    defined(KOKKOS_ENABLE_MACA)
 #else
 #define MATHEMATICAL_FUNCTIONS_HAVE_LONG_DOUBLE_OVERLOADS
 #endif
@@ -2795,7 +2796,7 @@ struct TestSignbit {
     // https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/mathematical-functions.html#cuda-and-ieee-754-compliance:
     // "[...] result in the sign of a NaN being updated in an
     // implementation-defined manner."
-#ifndef KOKKOS_ENABLE_CUDA
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_MACA)
         || !signbit(-static_cast<KE::half_t>(quiet_NaN<KE::half_t>::value)) ||
         !signbit(-static_cast<KE::half_t>(signaling_NaN<KE::half_t>::value))
 #endif
@@ -2815,7 +2816,7 @@ struct TestSignbit {
         !signbit(-static_cast<KE::bhalf_t>(infinity<KE::bhalf_t>::value)) ||
         !signbit(-static_cast<KE::bhalf_t>(denorm_min<KE::bhalf_t>::value))
 // the bhalf test also fails for SYCL+Cuda
-#ifndef KOKKOS_IMPL_ARCH_NVIDIA_GPU
+#if !defined(KOKKOS_IMPL_ARCH_NVIDIA_GPU) && !defined(KOKKOS_ENABLE_MACA)
         || !signbit(-static_cast<KE::bhalf_t>(quiet_NaN<KE::bhalf_t>::value)) ||
         !signbit(-static_cast<KE::bhalf_t>(signaling_NaN<KE::bhalf_t>::value))
 #endif

@@ -162,8 +162,7 @@ void* MacaHostPinnedSpace::impl_allocate(
   void* ptr = nullptr;
 
   KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
-  auto const error_code =
-      hipHostMalloc(&ptr, arg_alloc_size, hipHostMallocNonCoherent);
+  auto const error_code = hipHostMalloc(&ptr, arg_alloc_size);
   if (error_code != hipSuccess) {
     // This is the only way to clear the last error, which we should do here
     // since we're turning it into an exception here
