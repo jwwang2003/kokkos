@@ -1222,6 +1222,9 @@ KOKKOS_INLINE_FUNCTION void parallel_reduce(
 #elif defined(KOKKOS_ENABLE_HIP)
                 || std::is_same_v<typename TeamHandle::execution_space,
                                   Kokkos::HIP>
+#elif defined(KOKKOS_ENABLE_MACA)
+                || std::is_same_v<typename TeamHandle::execution_space,
+                                  Kokkos::Maca>
 #elif defined(KOKKOS_ENABLE_SYCL)
                 || std::is_same_v<typename TeamHandle::execution_space,
                                   Kokkos::SYCL>
@@ -1258,6 +1261,9 @@ KOKKOS_INLINE_FUNCTION void parallel_reduce(
 #elif defined(KOKKOS_ENABLE_HIP)
                 || std::is_same_v<typename TeamHandle::execution_space,
                                   Kokkos::HIP>
+#elif defined(KOKKOS_ENABLE_MACA)
+                || std::is_same_v<typename TeamHandle::execution_space,
+                                  Kokkos::Maca>
 #elif defined(KOKKOS_ENABLE_SYCL)
                 || std::is_same_v<typename TeamHandle::execution_space,
                                   Kokkos::SYCL>
