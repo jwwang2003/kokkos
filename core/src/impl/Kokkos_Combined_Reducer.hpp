@@ -44,7 +44,7 @@ struct CombinedReducerValueItemImpl {
 // Dummy struct used to align CombinedReducerValueImpl to at least alignof(int).
 // CombinedReducerValueImpl has to be aligned to at least alignof(int) and its
 // sizeof must be a multiple of sizeof(int), as we might access it through an
-// int* in the CUDA and HIP reduction kernels.
+// int* in the CUDA, HIP, and MACA reduction kernels.
 struct alignas(int) AlignmentHelper {};
 
 template <class IdxSeq, class... ValueTypes>
@@ -53,7 +53,8 @@ struct CombinedReducerValueImpl;
 template <size_t... Idxs, class... ValueTypes>
 struct CombinedReducerValueImpl<std::integer_sequence<size_t, Idxs...>,
                                 ValueTypes...> :
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || \
+    defined(KOKKOS_ENABLE_MACA)
     AlignmentHelper,
 #endif
     CombinedReducerValueItemImpl<Idxs, ValueTypes>... {

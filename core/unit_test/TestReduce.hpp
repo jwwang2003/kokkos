@@ -12,6 +12,7 @@ import kokkos.core;
 #include <Kokkos_Core.hpp>
 #endif
 #include <Kokkos_TypeInfo.hpp>
+#include <impl/Kokkos_Combined_Reducer.hpp>
 
 #include <cmath>
 #include <random>
@@ -603,6 +604,29 @@ TEST(TEST_CATEGORY, int_combined_reduce) {
   ASSERT_EQ(nsum, uint64_t(result3));
 }
 
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || \
+    defined(KOKKOS_ENABLE_MACA)
+TEST(TEST_CATEGORY, combined_reducer_value_layout_contract) {
+  using three_short_values = Kokkos::Impl::CombinedReducerValueImpl<
+      std::integer_sequence<size_t, 0, 1, 2>, int16_t, int16_t, int16_t>;
+  using nine_char_values = Kokkos::Impl::CombinedReducerValueImpl<
+      std::integer_sequence<size_t, 0, 1, 2, 3, 4, 5, 6, 7, 8>, int8_t, int8_t,
+      int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t>;
+  using nine_short_values = Kokkos::Impl::CombinedReducerValueImpl<
+      std::integer_sequence<size_t, 0, 1, 2, 3, 4, 5, 6, 7, 8>, int16_t,
+      int16_t, int16_t, int16_t, int16_t, int16_t, int16_t, int16_t, int16_t>;
+
+  ASSERT_LE(alignof(int), alignof(three_short_values));
+  ASSERT_EQ(0u, sizeof(three_short_values) % sizeof(int));
+
+  ASSERT_LE(alignof(int), alignof(nine_char_values));
+  ASSERT_EQ(0u, sizeof(nine_char_values) % sizeof(int));
+
+  ASSERT_LE(alignof(int), alignof(nine_short_values));
+  ASSERT_EQ(0u, sizeof(nine_short_values) % sizeof(int));
+}
+#endif
+
 TEST(TEST_CATEGORY, many_int8_combined_reduce) {
   using functor_type =
       CombinedReduceFunctorManySameType<int8_t, TEST_EXECSPACE>;
@@ -835,7 +859,8 @@ TEST(TEST_CATEGORY, reduction_identity_min_max_floating_point_types) {
   TestReductionOverInfiniteFloat<double>();
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP) && \
-    !defined(KOKKOS_ENABLE_SYCL) && !defined(KOKKOS_ENABLE_OPENACC)
+    !defined(KOKKOS_ENABLE_SYCL) && !defined(KOKKOS_ENABLE_OPENACC) && \
+    !defined(KOKKOS_ENABLE_MACA)
   TestReductionOverInfiniteFloat<long double>();
 #endif
 }
