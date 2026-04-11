@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="${ROOT:-/home/wjw/workspace/kokkos}"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build-maca-tests}"
-JOBS="${JOBS:-4}"
+JOBS="${JOBS:-64}"
 
 TARGETS=(
   Kokkos_UnitTest_Sort

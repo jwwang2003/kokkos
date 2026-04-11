@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="${ROOT:-/home/wjw/workspace/kokkos}"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build-maca-perf}"
-JOBS="${JOBS:-4}"
+JOBS="${JOBS:-64}"
 PERF_DIR="$BUILD_DIR/core/perf_test"
 TIMESTAMP="${TIMESTAMP:-$(date -u +%Y-%m-%d_T%H-%M-%S)}"
 RESULTS_DIR="${RESULTS_DIR:-$BUILD_DIR/perf-results/$TIMESTAMP}"

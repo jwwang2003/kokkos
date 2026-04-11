@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="${ROOT:-/home/wjw/workspace/kokkos}"
-BUILD_DIR="${BUILD_DIR:-$ROOT/build-maca-debug}"
-JOBS="${JOBS:-4}"
+BUILD_DIR="${BUILD_DIR:-$ROOT/build-maca-tests}"
+JOBS="${JOBS:-64}"
 
 TARGETS=(
   Kokkos_tutorial_01_hello_world
