@@ -516,14 +516,20 @@ KOKKOS_IMPL_HALF_MATH_FPCLASSIFY(Kokkos::Experimental::bhalf_t)
 
 #if defined(KOKKOS_HALF_T_IS_FLOAT) && !KOKKOS_HALF_T_IS_FLOAT
 KOKKOS_INLINE_FUNCTION bool signbit(Kokkos::Experimental::half_t x) {
-  constexpr std::uint16_t sign_mask = 1u<<15;
-  return (Kokkos::bit_cast<std::uint16_t>(x) & sign_mask) != 0;
+  using bit_type = Kokkos::Experimental::half_t::bit_comparison_type;
+  constexpr bit_type sign_mask{1u << 15};
+  const bit_type bit_pattern_x = bit_cast<bit_type>(
+      static_cast<Kokkos::Experimental::half_t::impl_type>(x));
+  return (bit_pattern_x.value & sign_mask.value) != 0;
 }
 #endif
 #if defined(KOKKOS_BHALF_T_IS_FLOAT) && !KOKKOS_BHALF_T_IS_FLOAT
 KOKKOS_INLINE_FUNCTION bool signbit(Kokkos::Experimental::bhalf_t x) {
-  constexpr std::uint16_t sign_mask = 1u<<15;
-  return (Kokkos::bit_cast<std::uint16_t>(x) & sign_mask) != 0;
+  using bit_type = Kokkos::Experimental::bhalf_t::bit_comparison_type;
+  constexpr bit_type sign_mask{1u << 15};
+  const bit_type bit_pattern_x = bit_cast<bit_type>(
+      static_cast<Kokkos::Experimental::bhalf_t::impl_type>(x));
+  return (bit_pattern_x.value & sign_mask.value) != 0;
 }
 #endif
 // isgreater

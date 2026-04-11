@@ -120,8 +120,6 @@ Kokkos::Maca::initialize WARNING: Could not determine that xnack is enabled.
   KOKKOS_IMPL_MACA_SAFE_CALL(hipStreamCreate(&stream));
   Impl::MacaInternal::default_instance = Impl::HostSharedPtr(
       new Impl::MacaInternal(stream), customDeleterManagesStream);
-  Impl::MacaInternal::default_instance->m_allow_post_finalize_destruction =
-      true;
 }
 
 void Maca::impl_finalize() {
@@ -143,13 +141,7 @@ void Maca::impl_finalize() {
   Impl::MacaInternal::default_instance = nullptr;
 }
 
-Maca::~Maca() {
-  if (Kokkos::is_finalized() && m_space_instance &&
-      m_space_instance->m_allow_post_finalize_destruction) {
-    return;
-  }
-  Impl::check_execution_space_destructor_precondition(name());
-}
+Maca::~Maca() { Impl::check_execution_space_destructor_precondition(name()); }
 
 Maca::Maca()
     : m_space_instance(
