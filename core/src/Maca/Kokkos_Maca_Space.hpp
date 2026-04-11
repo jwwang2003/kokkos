@@ -29,6 +29,26 @@ namespace Impl {
 template <typename T>
 struct is_maca_type_space : public std::false_type {};
 
+struct MacaManagedMemorySupport {
+  bool has_managed_memory_attribute      = false;
+  bool has_pageable_memory_access        = false;
+  bool gpu_arch_can_access_system_memory = false;
+  bool hmm_mirror_enabled_in_kernel_config = false;
+  bool xnack_enabled_in_environment      = false;
+
+  constexpr bool page_migration_supported() const {
+    return has_managed_memory_attribute && has_pageable_memory_access;
+  }
+
+  constexpr bool fully_supported() const {
+    return page_migration_supported() &&
+           hmm_mirror_enabled_in_kernel_config &&
+           xnack_enabled_in_environment;
+  }
+};
+
+MacaManagedMemorySupport query_maca_managed_memory_support(int device_id);
+
 }  // namespace Impl
 
 /** \brief  Maca on-device memory management */

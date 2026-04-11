@@ -33,6 +33,7 @@ cmake -S . -B build-maca \
   -DCMAKE_CXX_COMPILER=${CXX:-mxcc} \
   -DKokkos_ENABLE_SERIAL=ON \
   -DKokkos_ENABLE_MACA=ON \
+  -DKokkos_ARCH_XCORE1000=ON \
   -DKokkos_IMPL_MACAGPU_FLAGS="--offload-arch=xcore1000"
 ```
 
@@ -46,6 +47,7 @@ cmake -S . -B build-maca-tests \
   -DKokkos_ENABLE_MACA=ON \
   -DKokkos_ENABLE_TESTS=ON \
   -DKokkos_ENABLE_EXAMPLES=ON \
+  -DKokkos_ARCH_XCORE1000=ON \
   -DKokkos_IMPL_MACAGPU_FLAGS="--offload-arch=xcore1000"
 ```
 
@@ -60,6 +62,7 @@ cmake -S . -B build-maca-rdc \
   -DKokkos_ENABLE_TESTS=ON \
   -DKokkos_ENABLE_EXAMPLES=ON \
   -DKokkos_ENABLE_MACA_RELOCATABLE_DEVICE_CODE=ON \
+  -DKokkos_ARCH_XCORE1000=ON \
   -DKokkos_IMPL_MACAGPU_FLAGS="--offload-arch=xcore1000"
 ```
 
@@ -125,6 +128,7 @@ cmake -S . -B build-maca-examples \
   -DKokkos_ENABLE_SERIAL=ON \
   -DKokkos_ENABLE_MACA=ON \
   -DKokkos_ENABLE_EXAMPLES=ON \
+  -DKokkos_ARCH_XCORE1000=ON \
   -DKokkos_IMPL_MACAGPU_FLAGS="--offload-arch=xcore1000"
 
 cmake --build build-maca-examples --target Kokkos_tutorial_algorithms_01_random_numbers -j
@@ -187,6 +191,120 @@ If multiple GPUs are present, you can restrict visibility before running tests:
 ```bash
 export KOKKOS_VISIBLE_DEVICES=0
 ctest --test-dir build-maca-tests -R Maca --output-on-failure
+```
+
+## Managed Memory Setup
+
+For `MacaManagedSpace` and `Kokkos::SharedSpace` to be treated as fully
+supported, all of the following need to line up:
+
+- `hipDeviceAttributeManagedMemory == 1`
+- `hipDeviceAttributePageableMemoryAccess == 1`
+- the running kernel reports `CONFIG_HMM_MIRROR=y`
+- `HSA_XNACK=1` is set in the runtime environment
+
+Recommended environment for managed-memory validation:
+
+```bash
+export MACA_PATH=/opt/maca
+export CUCC_PATH=/opt/maca/tools/cu-bridge
+export PATH=$PATH:${CUCC_PATH}/tools:${CUCC_PATH}/bin
+export CUCC_CMAKE_ENTRY=2
+export CUDA_PATH=${CUCC_PATH}
+export HSA_XNACK=1
+```
+
+Recommended configure for a managed-memory validation tree:
+
+```bash
+cmake -S . -B build-maca-perf \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=${CXX:-mxcc} \
+  -DKokkos_ENABLE_SERIAL=ON \
+  -DKokkos_ENABLE_MACA=ON \
+  -DKokkos_ENABLE_BENCHMARKS=ON \
+  -DKokkos_ARCH_XCORE1000=ON \
+  -DKokkos_IMPL_MACAGPU_FLAGS="--offload-arch=xcore1000"
+```
+
+Run the managed-memory validator:
+
+```bash
+./run_maca_managed_memory_validation.sh
+```
+
+Use a different build tree or more parallel jobs:
+
+```bash
+BUILD_DIR=/home/wjw/workspace/kokkos/build-maca-perf JOBS=16 ./run_maca_managed_memory_validation.sh
+```
+
+Expected output on a fully supported setup:
+
+- no `MacaManagedSpace is not fully supported on this system` warning
+- `System allows accessing system allocated memory on GPU: 1` in printed Kokkos configuration
+- `Kokkos_PerformanceTest_SharedSpace` runs the migration timing loop instead of printing a skip message
+
+## Performance Benchmarks
+
+Configure a dedicated MACA benchmark tree:
+
+```bash
+cmake -S . -B build-maca-perf \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=${CXX:-mxcc} \
+  -DKokkos_ENABLE_SERIAL=ON \
+  -DKokkos_ENABLE_MACA=ON \
+  -DKokkos_ENABLE_BENCHMARKS=ON \
+  -DKokkos_ARCH_XCORE1000=ON \
+  -DKokkos_IMPL_MACAGPU_FLAGS="--offload-arch=xcore1000"
+```
+
+If `google/benchmark` is not already installed, the perf-test CMake logic will
+try to fetch it during configure.
+
+Build the main MACA perf targets:
+
+```bash
+cmake --build build-maca-perf --target \
+  Kokkos_PerformanceTest_Benchmark \
+  Kokkos_Benchmark_Atomic_MinMax \
+  Kokkos_PerformanceTest_ViewFirstTouch \
+  Kokkos_PerformanceTest_MDRangePolicy_Stream \
+  Kokkos_PerformanceTest_Mempool \
+  Kokkos_PerformanceTest_Atomic \
+  Kokkos_PerformanceTest_Reduction -j
+```
+
+Run the aggregate benchmark executable directly:
+
+```bash
+./build-maca-perf/core/perf_test/Kokkos_PerformanceTest_Benchmark
+```
+
+List benchmark names or filter to a subset:
+
+```bash
+./build-maca-perf/core/perf_test/Kokkos_PerformanceTest_Benchmark --benchmark_list_tests
+./build-maca-perf/core/perf_test/Kokkos_PerformanceTest_Benchmark --benchmark_filter=Gemv
+```
+
+Build and run the main MACA perf benchmark executables in one pass:
+
+```bash
+./run_perf_tests.sh
+```
+
+Use a different build tree or more parallel jobs:
+
+```bash
+BUILD_DIR=/home/wjw/workspace/kokkos/build-maca-perf JOBS=16 ./run_perf_tests.sh
+```
+
+The script writes JSON benchmark outputs under:
+
+```text
+build-maca-perf/perf-results/<timestamp>/
 ```
 
 ## Sanity Checks

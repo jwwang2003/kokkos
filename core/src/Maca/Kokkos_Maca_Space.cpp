@@ -44,6 +44,33 @@ static std::atomic<bool> is_first_hip_managed_allocation(true);
 
 namespace Kokkos {
 
+namespace Impl {
+
+MacaManagedMemorySupport query_maca_managed_memory_support(int device_id) {
+  MacaManagedMemorySupport support{};
+  int has_managed_memory   = 0;
+  int has_pageable_memory  = 0;
+
+  KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceGetAttribute(
+      &has_managed_memory, hipDeviceAttributeManagedMemory, device_id));
+  KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceGetAttribute(
+      &has_pageable_memory, hipDeviceAttributePageableMemoryAccess, device_id));
+
+  support.has_managed_memory_attribute =
+      static_cast<bool>(has_managed_memory);
+  support.has_pageable_memory_access = static_cast<bool>(has_pageable_memory);
+  support.gpu_arch_can_access_system_memory =
+      gpu_arch_can_access_system_allocations() ||
+      support.has_pageable_memory_access;
+  support.hmm_mirror_enabled_in_kernel_config =
+      xnack_boot_config_has_hmm_mirror();
+  support.xnack_enabled_in_environment = xnack_environment_enabled();
+
+  return support;
+}
+
+}  // namespace Impl
+
 MacaSpace::MacaSpace()
     : m_device(Maca().maca_device()), m_stream(Maca().maca_stream()) {}
 MacaSpace::MacaSpace(int device_id, hipStream_t stream)
@@ -170,27 +197,28 @@ void* MacaManagedSpace::impl_allocate(
     KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
     if (is_first_hip_managed_allocation.exchange(false) &&
         Kokkos::show_warnings()) {
-      do {  // hack to avoid spamming users with too many warnings
-        if (!impl_hip_driver_check_page_migration()) {
-          std::cerr << R"warning(
-Kokkos::Maca::allocation WARNING: The combination of device and system configuration
-                                 does not support page migration between device and host.
-                                 MacaManagedSpace might not work as expected.
-                                 Please refer to the ROCm documentation on unified/managed memory.)warning"
-                    << std::endl;
-          break;  // do not warn about HSA_XNACK environement variable
-        }
-
-        // check for correct runtime environment
-        if (!Kokkos::Impl::xnack_environment_enabled())
-          std::cerr << R"warning(
-Kokkos::Maca::runtime WARNING: Kokkos was not able to verify that xnack is enabled.
-                              Without xnack enabled, Kokkos::HIPManaged might not behave as expected.
-                              Set HSA_XNACK=1 in your environment. For further information on HMM support
-                              call `Kokkos::print_configuration`, or run with KOKKOS_PRINT_CONFIGURATION=1
-                              in your environment.
-)warning";
-      } while (false);
+      auto const support =
+          Kokkos::Impl::query_maca_managed_memory_support(m_device);
+      if (!support.fully_supported()) {
+        std::cerr
+            << "Kokkos::Maca::allocation WARNING: MacaManagedSpace is not "
+               "fully supported on this system.\n"
+            << "                                 "
+               "hipDeviceAttributeManagedMemory: "
+            << support.has_managed_memory_attribute << '\n'
+            << "                                 "
+               "hipDeviceAttributePageableMemoryAccess: "
+            << support.has_pageable_memory_access << '\n'
+            << "                                 "
+               "gpu_arch_can_access_system_memory: "
+            << support.gpu_arch_can_access_system_memory << '\n'
+            << "                                 "
+               "kernel_hmm_mirror_enabled: "
+            << support.hmm_mirror_enabled_in_kernel_config << '\n'
+            << "                                 "
+               "xnack_enabled_in_environment: "
+            << support.xnack_enabled_in_environment << '\n';
+      }
     }
     auto const error_code = hipMallocManaged(&ptr, arg_alloc_size);
     if (error_code != hipSuccess) {
@@ -212,17 +240,8 @@ Kokkos::Maca::runtime WARNING: Kokkos was not able to verify that xnack is enabl
   return ptr;
 }
 bool MacaManagedSpace::impl_hip_driver_check_page_migration() const {
-  // check with driver if page migrating memory is available
-  // this driver query is copied from the hip documentation
-  int hasManagedMemory = 0;  // false by default
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceGetAttribute(
-      &hasManagedMemory, hipDeviceAttributeManagedMemory, m_device));
-  if (!static_cast<bool>(hasManagedMemory)) return false;
-  // next, check pageableMemoryAccess
-  int hasPageableMemory = 0;  // false by default
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceGetAttribute(
-      &hasPageableMemory, hipDeviceAttributePageableMemoryAccess, m_device));
-  return static_cast<bool>(hasPageableMemory);
+  return Kokkos::Impl::query_maca_managed_memory_support(m_device)
+      .page_migration_supported();
 }
 
 void MacaSpace::deallocate(void* const arg_alloc_ptr,
