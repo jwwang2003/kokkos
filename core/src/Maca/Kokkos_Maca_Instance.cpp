@@ -99,6 +99,7 @@ void MacaInternal::print_configuration(std::ostream &s) const {
   for (int i : get_visible_devices()) {
     hipDeviceProp_t hipProp;
     KOKKOS_IMPL_MACA_SAFE_CALL(hipGetDeviceProperties(&hipProp, i));
+    auto const support = query_maca_managed_memory_support(i);
     std::string gpu_type = hipProp.integrated == 1 ? "APU" : "dGPU";
 
     s << "Kokkos::Maca[ " << i << " ] "
@@ -114,12 +115,18 @@ void MacaInternal::print_configuration(std::ostream &s) const {
       << ::Kokkos::Impl::human_memory_size(hipProp.sharedMemPerBlock) << '\n'
       << "  APU or dGPU: " << gpu_type << '\n'
       << "  Is Large Bar: " << hipProp.isLargeBar << '\n'
-      << "  Supports Managed Memory: " << hipProp.managedMemory << '\n'
+      << "  Supports Managed Memory: "
+      << support.has_managed_memory_attribute << '\n'
+      << "  Pageable Memory Access: "
+      << support.has_pageable_memory_access << '\n'
       << "  Architecture capable of accessing system allocated memory: "
-      << gpu_arch_can_access_system_allocations() << '\n'
+      << support.gpu_arch_can_access_system_memory << '\n'
+      << "  HMM mirror enabled in kernel config: "
+      << support.hmm_mirror_enabled_in_kernel_config << '\n'
+      << "  XNACK enabled in environment: "
+      << support.xnack_enabled_in_environment << '\n'
       << "  System allows accessing system allocated memory on GPU: "
-      << (xnack_boot_config_has_hmm_mirror() && xnack_environment_enabled() &&
-          gpu_arch_can_access_system_allocations())
+      << support.fully_supported()
       << '\n'
       << "  Wavefront Size: " << hipProp.warpSize << '\n';
   }
