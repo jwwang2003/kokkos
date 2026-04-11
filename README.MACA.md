@@ -135,6 +135,38 @@ cmake --build build-maca-examples --target Kokkos_tutorial_algorithms_01_random_
 ./build-maca-examples/example/tutorial/Algorithms/01_random_numbers/Kokkos_tutorial_algorithms_01_random_numbers
 ```
 
+Build the launch-bounds particle tutorial example:
+
+```bash
+cmake --build build-maca-tests --target Kokkos_launch_bounds_particles -j
+```
+
+Run the launch-bounds particle tutorial example:
+
+```bash
+./build-maca-tests/example/tutorial/launch_bounds/Kokkos_launch_bounds_particles
+```
+
+The tutorial keeps the particle-and-ground physics from the reference example,
+prints initialization plus baseline step timing, and reports aggregate metrics:
+
+- active particle count
+- average height
+- total kinetic energy
+- maximum speed
+
+Example output shape:
+
+```text
+Particle count: 1000000
+Step count: 200
+Prepare data time: ...
+Baseline total time: ...
+Baseline per-step time: ...
+Baseline metrics: active=... avg_height=... total_ke=... max_speed=...
+Sample particle 123: pos=(...), vel=(...)
+```
+
 ## Unit Tests
 
 Run all tests registered in the build tree:
@@ -306,6 +338,44 @@ The script writes JSON benchmark outputs under:
 ```text
 build-maca-perf/perf-results/<timestamp>/
 ```
+
+## Tutorial Backend Comparison
+
+The `launch_bounds_particles` tutorial is also a useful sanity-check kernel for
+comparing backend execution on the same particle update loop.
+
+Example comparison from this repository on 2026-04-11 with:
+
+- `1,000,000` particles
+- `200` steps
+- `OpenMP` run with `OMP_NUM_THREADS=16`
+
+Measured results:
+
+| Backend | Prepare data time | Baseline total time | Per-step time |
+|---------|-------------------|---------------------|---------------|
+| Serial | `636.890 ms` | `77561.229 ms` | `387.806143 ms` |
+| OpenMP | `639.532 ms` | `4999.014 ms` | `24.995070 ms` |
+| MACA | `603.638 ms` | `29.702 ms` | `0.148508 ms` |
+
+Relative speedups from that run:
+
+- OpenMP vs Serial: about `15.5x`
+- MACA vs OpenMP: about `168x`
+- MACA vs Serial: about `2611x`
+
+The aggregate physics metrics matched across the three backends to the printed
+precision:
+
+```text
+active=999984
+avg_height=0.000077
+total_ke=411.5740xx
+max_speed=1.566976
+```
+
+These numbers are hardware- and build-dependent. Use them as an example
+reference for this tree, not as a guaranteed backend ratio.
 
 ## Sanity Checks
 
