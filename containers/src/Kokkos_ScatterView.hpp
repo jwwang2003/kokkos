@@ -160,6 +160,23 @@ struct DefaultContribution<Kokkos::HIP,
 };
 #endif
 
+#ifdef KOKKOS_ENABLE_MACA
+template <>
+struct DefaultDuplication<Kokkos::Maca> {
+  using type = Kokkos::Experimental::ScatterNonDuplicated;
+};
+template <>
+struct DefaultContribution<Kokkos::Maca,
+                           Kokkos::Experimental::ScatterNonDuplicated> {
+  using type = Kokkos::Experimental::ScatterAtomic;
+};
+template <>
+struct DefaultContribution<Kokkos::Maca,
+                           Kokkos::Experimental::ScatterDuplicated> {
+  using type = Kokkos::Experimental::ScatterAtomic;
+};
+#endif
+
 #ifdef KOKKOS_ENABLE_SYCL
 template <>
 struct DefaultDuplication<Kokkos::SYCL> {

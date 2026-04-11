@@ -292,8 +292,17 @@ static_assert(test_view_typedefs<
               Kokkos::Impl::AtomicDataElement<
                   Kokkos::ViewTraits<int, Kokkos::MemoryTraits<Kokkos::Atomic>>>
 #else
+              std::conditional_t<
+#ifdef KOKKOS_ENABLE_MACA
+                  std::is_same_v<typename space::memory_space, Kokkos::MacaSpace> ||
+                      std::is_same_v<typename space::memory_space, Kokkos::MacaManagedSpace>,
+                  Kokkos::Impl::KokkosAtomicAccessorRef<int>,
+#else
+                  false,
+                  Kokkos::Impl::KokkosAtomicAccessorRef<int>,
+#endif
               desul::AtomicRef<int, desul::MemoryOrderRelaxed,
-                               desul::MemoryScopeDevice>
+                               desul::MemoryScopeDevice>>
 #endif
               >(ViewParams<int, Kokkos::MemoryTraits<Kokkos::Atomic>>{}));
 // clang-format off

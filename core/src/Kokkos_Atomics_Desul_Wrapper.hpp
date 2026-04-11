@@ -14,6 +14,7 @@ static_assert(false,
 
 #include <impl/Kokkos_Volatile_Load.hpp>
 
+#include <cstdint>
 #include <type_traits>
 
 namespace Kokkos {
@@ -39,9 +40,56 @@ KOKKOS_INLINE_FUNCTION void maca_atomic_thread_fence(int order) {
   __atomic_thread_fence(order);
 }
 
+inline __device__ int32_t g_maca_atomic_locks[1u << 15] = {};
+
+KOKKOS_INLINE_FUNCTION unsigned int maca_atomic_lock_offset(
+    void const volatile* ptr) {
+  constexpr uintptr_t mask = (1u << 15) - 1u;
+  return static_cast<unsigned int>(
+      (reinterpret_cast<uintptr_t>(ptr) >> 2u) & mask);
+}
+
+KOKKOS_INLINE_FUNCTION bool maca_atomic_try_lock(void const volatile* ptr) {
+  return atomicCAS(&g_maca_atomic_locks[maca_atomic_lock_offset(ptr)], 0, 1) ==
+         0;
+}
+
+KOKKOS_INLINE_FUNCTION void maca_atomic_unlock(void const volatile* ptr) {
+  __threadfence();
+  g_maca_atomic_locks[maca_atomic_lock_offset(ptr)] = 0;
+}
+
+template <class T, class Op>
+KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_lock_op(T* ptr, Op op) {
+  using value_type = std::remove_volatile_t<T>;
+  value_type return_val{};
+  int done = 0;
+  unsigned long long active      = __activemask();
+  unsigned long long done_active = 0;
+  while (active != done_active) {
+    if (!done && maca_atomic_try_lock(ptr)) {
+      return_val = op();
+      maca_atomic_unlock(ptr);
+      done = 1;
+    }
+    done_active = __ballot_sync(active, done ? 1 : 0);
+  }
+  return return_val;
+}
+
 template <class T>
 KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_load(
     T const* ptr) {
+#if __SIZEOF_POINTER__ >= 8
+  if constexpr (sizeof(std::remove_volatile_t<T>) > 8) {
+    return maca_atomic_lock_op(const_cast<std::remove_volatile_t<T>*>(ptr),
+                               [ptr]() -> std::remove_volatile_t<T> {
+                                 auto* non_volatile_ptr =
+                                     const_cast<std::remove_volatile_t<T>*>(ptr);
+                                 return *non_volatile_ptr;
+                               });
+  }
+#endif
   std::remove_volatile_t<T> value;
   __atomic_load(const_cast<std::remove_volatile_t<T>*>(ptr), &value,
                 __ATOMIC_RELAXED);
@@ -49,8 +97,22 @@ KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_load(
 }
 
 template <class T>
+KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_exchange(
+    T* ptr, std::remove_volatile_t<T> value);
+
+template <class T>
 KOKKOS_FUNCTION void maca_atomic_store(
     T* ptr, std::remove_volatile_t<T> value) {
+#if __SIZEOF_POINTER__ >= 8
+  if constexpr (sizeof(std::remove_volatile_t<T>) > 8) {
+    (void)maca_atomic_lock_op(ptr, [ptr, value]() -> std::remove_volatile_t<T> {
+      auto* non_volatile_ptr = const_cast<std::remove_volatile_t<T>*>(ptr);
+      *non_volatile_ptr      = value;
+      return value;
+    });
+    return;
+  }
+#endif
   __atomic_store(const_cast<std::remove_volatile_t<T>*>(ptr), &value,
                  __ATOMIC_RELAXED);
 }
@@ -58,6 +120,16 @@ KOKKOS_FUNCTION void maca_atomic_store(
 template <class T>
 KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_exchange(
     T* ptr, std::remove_volatile_t<T> value) {
+#if __SIZEOF_POINTER__ >= 8
+  if constexpr (sizeof(std::remove_volatile_t<T>) > 8) {
+    return maca_atomic_lock_op(ptr, [ptr, value]() -> std::remove_volatile_t<T> {
+      auto* non_volatile_ptr = const_cast<std::remove_volatile_t<T>*>(ptr);
+      auto old               = *non_volatile_ptr;
+      *non_volatile_ptr      = value;
+      return old;
+    });
+  }
+#endif
   std::remove_volatile_t<T> old;
   __atomic_exchange(const_cast<std::remove_volatile_t<T>*>(ptr), &value, &old,
                     __ATOMIC_RELAXED);
@@ -67,6 +139,19 @@ KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_exchange(
 template <class T>
 KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_compare_exchange(
     T* ptr, std::remove_volatile_t<T> expected, std::remove_volatile_t<T> desired) {
+#if __SIZEOF_POINTER__ >= 8
+  if constexpr (sizeof(std::remove_volatile_t<T>) > 8) {
+    return maca_atomic_lock_op(
+        ptr, [ptr, expected, desired]() -> std::remove_volatile_t<T> {
+          auto* non_volatile_ptr = const_cast<std::remove_volatile_t<T>*>(ptr);
+          auto old               = *non_volatile_ptr;
+          if (old == expected) {
+            *non_volatile_ptr = desired;
+          }
+          return old;
+        });
+  }
+#endif
   __atomic_compare_exchange(const_cast<std::remove_volatile_t<T>*>(ptr),
                             &expected, &desired, false, __ATOMIC_RELAXED,
                             __ATOMIC_RELAXED);
@@ -76,9 +161,20 @@ KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_compare_exchange(
 template <class T, class Op>
 KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_fetch_op(
     T* ptr, std::remove_volatile_t<T> val, Op op) {
+#if __SIZEOF_POINTER__ >= 8
+  if constexpr (sizeof(std::remove_volatile_t<T>) > 8) {
+    return maca_atomic_lock_op(ptr, [ptr, val, op]() -> std::remove_volatile_t<T> {
+      auto* non_volatile_ptr = const_cast<std::remove_volatile_t<T>*>(ptr);
+      auto old               = *non_volatile_ptr;
+      *non_volatile_ptr = static_cast<std::remove_volatile_t<T>>(op(old, val));
+      return old;
+    });
+  }
+#endif
   auto old = maca_atomic_load(ptr);
   while (true) {
-    auto desired = op(old, val);
+    std::remove_volatile_t<T> desired =
+        static_cast<std::remove_volatile_t<T>>(op(old, val));
     auto prior   = old;
     if (__atomic_compare_exchange(const_cast<std::remove_volatile_t<T>*>(ptr),
                                   &prior, &desired, false, __ATOMIC_RELAXED,
@@ -87,6 +183,13 @@ KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_fetch_op(
     }
     old = prior;
   }
+}
+
+template <class T, class Op>
+KOKKOS_FUNCTION std::remove_volatile_t<T> maca_atomic_op_fetch(
+    T* ptr, std::remove_volatile_t<T> val, Op op) {
+  auto old = maca_atomic_fetch_op(ptr, val, op);
+  return static_cast<std::remove_volatile_t<T>>(op(old, val));
 }
 #endif
 }  // namespace Impl
@@ -165,9 +268,27 @@ template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_mi
   return desul::atomic_fetch_min(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
 #endif
 }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_mul(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_fetch_mul(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_div(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_fetch_div(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_mod(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_fetch_mod(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_mul(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto factor) { return old * factor; });
+#else
+  return desul::atomic_fetch_mul(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_div(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto divisor) { return old / divisor; });
+#else
+  return desul::atomic_fetch_div(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_mod(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto divisor) { return old % divisor; });
+#else
+  return desul::atomic_fetch_mod(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
 template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_and(T* ptr, Impl::not_deduced_atomic_t<T> val) {
 #if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
   return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto bits) { return old & bits; });
@@ -182,16 +303,64 @@ template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_or
   return desul::atomic_fetch_or (const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
 #endif
 }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_xor(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_fetch_xor(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_nand(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_fetch_nand(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_lshift(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_fetch_lshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_rshift(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_fetch_rshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_inc(T* ptr) { return desul::atomic_fetch_inc(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_dec(T* ptr) { return desul::atomic_fetch_dec(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_xor(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto bits) { return old ^ bits; });
+#else
+  return desul::atomic_fetch_xor(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_nand(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto bits) { return ~(old & bits); });
+#else
+  return desul::atomic_fetch_nand(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_lshift(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto shift) { return old << shift; });
+#else
+  return desul::atomic_fetch_lshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_rshift(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto shift) { return old >> shift; });
+#else
+  return desul::atomic_fetch_rshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_inc(T* ptr) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, std::remove_volatile_t<T>(1), [](auto old, auto one) { return old + one; });
+#else
+  return desul::atomic_fetch_inc(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_fetch_dec(T* ptr) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_fetch_op(ptr, std::remove_volatile_t<T>(1), [](auto old, auto one) { return old - one; });
+#else
+  return desul::atomic_fetch_dec(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
 
 // atomic_op_fetch
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_add_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_add_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_sub_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_sub_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_add_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto inc) { return old + inc; });
+#else
+  return desul::atomic_add_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_sub_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto dec) { return old - dec; });
+#else
+  return desul::atomic_sub_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
 template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_max_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
 #if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
   auto old = Impl::maca_atomic_fetch_op(ptr, val, [](auto prior, auto candidate) {
@@ -212,17 +381,83 @@ template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_min_fetc
   return desul::atomic_min_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
 #endif
 }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_mul_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_mul_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_div_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_div_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_mod_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_mod_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_and_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_and_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_or_fetch (T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_or_fetch (const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_xor_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_xor_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_nand_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_nand_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_lshift_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_lshift_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_rshift_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) { return desul::atomic_rshift_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_inc_fetch(T* ptr) { return desul::atomic_inc_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_dec_fetch(T* ptr) { return desul::atomic_dec_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_mul_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto factor) { return old * factor; });
+#else
+  return desul::atomic_mul_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_div_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto divisor) { return old / divisor; });
+#else
+  return desul::atomic_div_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_mod_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto divisor) { return old % divisor; });
+#else
+  return desul::atomic_mod_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_and_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto bits) { return old & bits; });
+#else
+  return desul::atomic_and_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_or_fetch (T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto bits) { return old | bits; });
+#else
+  return desul::atomic_or_fetch (const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_xor_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto bits) { return old ^ bits; });
+#else
+  return desul::atomic_xor_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_nand_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto bits) { return ~(old & bits); });
+#else
+  return desul::atomic_nand_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_lshift_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto shift) { return old << shift; });
+#else
+  return desul::atomic_lshift_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_rshift_fetch(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, val, [](auto old, auto shift) { return old >> shift; });
+#else
+  return desul::atomic_rshift_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_inc_fetch(T* ptr) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, std::remove_volatile_t<T>(1), [](auto old, auto one) { return old + one; });
+#else
+  return desul::atomic_inc_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_dec_fetch(T* ptr) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  return Impl::maca_atomic_op_fetch(ptr, std::remove_volatile_t<T>(1), [](auto old, auto one) { return old - one; });
+#else
+  return desul::atomic_dec_fetch(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
 
 // atomic_op
 template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_add(T* ptr, Impl::not_deduced_atomic_t<T> val) {
@@ -257,9 +492,27 @@ template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_min(T
   desul::atomic_min(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
 #endif
 }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_mul(T* ptr, Impl::not_deduced_atomic_t<T> val) { desul::atomic_mul(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_div(T* ptr, Impl::not_deduced_atomic_t<T> val) { desul::atomic_div(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_mod(T* ptr, Impl::not_deduced_atomic_t<T> val) { desul::atomic_mod(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_mul(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto factor) { return old * factor; });
+#else
+  desul::atomic_mul(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_div(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto divisor) { return old / divisor; });
+#else
+  desul::atomic_div(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_mod(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto divisor) { return old % divisor; });
+#else
+  desul::atomic_mod(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
 template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_and(T* ptr, Impl::not_deduced_atomic_t<T> val) {
 #if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
   (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto bits) { return old & bits; });
@@ -274,12 +527,48 @@ template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_or (T
   desul::atomic_or (const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
 #endif
 }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_xor(T* ptr, Impl::not_deduced_atomic_t<T> val) { desul::atomic_xor(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_nand(T* ptr, Impl::not_deduced_atomic_t<T> val) { desul::atomic_nand(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_lshift(T* ptr, Impl::not_deduced_atomic_t<T> val) { desul::atomic_lshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_rshift(T* ptr, Impl::not_deduced_atomic_t<T> val) { desul::atomic_rshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_inc(T* ptr) { desul::atomic_inc(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
-template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_dec(T* ptr) { desul::atomic_dec(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE); }
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_xor(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto bits) { return old ^ bits; });
+#else
+  desul::atomic_xor(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_nand(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto bits) { return ~(old & bits); });
+#else
+  desul::atomic_nand(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_lshift(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto shift) { return old << shift; });
+#else
+  desul::atomic_lshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_rshift(T* ptr, Impl::not_deduced_atomic_t<T> val) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, val, [](auto old, auto shift) { return old >> shift; });
+#else
+  desul::atomic_rshift(const_cast<std::remove_volatile_t<T>*>(ptr), val, desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_inc(T* ptr) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, std::remove_volatile_t<T>(1), [](auto old, auto one) { return old + one; });
+#else
+  desul::atomic_inc(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
+template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, void> atomic_dec(T* ptr) {
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+  (void)Impl::maca_atomic_fetch_op(ptr, std::remove_volatile_t<T>(1), [](auto old, auto one) { return old - one; });
+#else
+  desul::atomic_dec(const_cast<std::remove_volatile_t<T>*>(ptr), desul::MemoryOrderRelaxed(), KOKKOS_DESUL_MEM_SCOPE);
+#endif
+}
 
 // exchange
 template<class T> KOKKOS_FUNCTION Impl::enable_if_atomic_t<T, T> atomic_exchange        (T* ptr, Impl::not_deduced_atomic_t<T> val)                                             {
