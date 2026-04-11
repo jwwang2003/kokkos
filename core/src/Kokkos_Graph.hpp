@@ -72,7 +72,7 @@ struct [[nodiscard]] Graph {
         m_root{m_impl_ptr->create_root_node_ptr()} {}
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || \
-    defined(KOKKOS_ENABLE_SYCL)
+    defined(KOKKOS_ENABLE_MACA) || defined(KOKKOS_ENABLE_SYCL)
   // Construct a graph from a native graph, add a root node.
   template <typename T>
 #if defined(KOKKOS_ENABLE_CXX20)
@@ -192,6 +192,10 @@ decltype(auto) Graph<ExecutionSpace>::native_graph() {
   if constexpr (std::is_same_v<ExecutionSpace, Kokkos::HIP>) {
     return m_impl_ptr->hip_graph();
   }
+#elif defined(KOKKOS_ENABLE_MACA)
+  if constexpr (std::is_same_v<ExecutionSpace, Kokkos::Maca>) {
+    return m_impl_ptr->hip_graph();
+  }
 #elif defined(KOKKOS_ENABLE_SYCL) && defined(KOKKOS_IMPL_SYCL_GRAPH_SUPPORT)
   if constexpr (std::is_same_v<ExecutionSpace, Kokkos::SYCL>) {
     return m_impl_ptr->sycl_graph();
@@ -208,6 +212,10 @@ decltype(auto) Graph<ExecutionSpace>::native_graph_exec() {
   }
 #elif defined(KOKKOS_ENABLE_HIP)
   if constexpr (std::is_same_v<ExecutionSpace, Kokkos::HIP>) {
+    return m_impl_ptr->hip_graph_exec();
+  }
+#elif defined(KOKKOS_ENABLE_MACA)
+  if constexpr (std::is_same_v<ExecutionSpace, Kokkos::Maca>) {
     return m_impl_ptr->hip_graph_exec();
   }
 #elif defined(KOKKOS_ENABLE_SYCL) && defined(KOKKOS_IMPL_SYCL_GRAPH_SUPPORT)
@@ -230,6 +238,9 @@ decltype(auto) Graph<ExecutionSpace>::native_graph_exec() {
 #include <Cuda/Kokkos_Cuda_Graph_Impl.hpp>
 #if defined(KOKKOS_ENABLE_HIP)
 #include <HIP/Kokkos_HIP_Graph_Impl.hpp>
+#endif
+#if defined(KOKKOS_ENABLE_MACA)
+#include <Maca/Kokkos_Maca_Graph_Impl.hpp>
 #endif
 #ifdef KOKKOS_IMPL_SYCL_GRAPH_SUPPORT
 #include <SYCL/Kokkos_SYCL_Graph_Impl.hpp>
