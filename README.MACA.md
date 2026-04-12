@@ -344,38 +344,79 @@ build-maca-perf/perf-results/<timestamp>/
 The `launch_bounds_particles` tutorial is also a useful sanity-check kernel for
 comparing backend execution on the same particle update loop.
 
-Example comparison from this repository on 2026-04-11 with:
+Dedicated example build trees created in this workspace on 2026-04-12:
+
+```bash
+cmake -S . -B build-launch-serial \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DKokkos_ENABLE_SERIAL=ON \
+  -DKokkos_ENABLE_OPENMP=OFF \
+  -DKokkos_ENABLE_CUDA=OFF \
+  -DKokkos_ENABLE_EXAMPLES=ON
+cmake --build build-launch-serial --target Kokkos_launch_bounds_particles -j
+
+cmake -S . -B build-launch-openmp \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DKokkos_ENABLE_SERIAL=OFF \
+  -DKokkos_ENABLE_OPENMP=ON \
+  -DKokkos_ENABLE_CUDA=OFF \
+  -DKokkos_ENABLE_EXAMPLES=ON
+cmake --build build-launch-openmp --target Kokkos_launch_bounds_particles -j
+
+cmake -S . -B build-launch-cuda \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=/home/wjw/workspace/kokkos/bin/nvcc_wrapper \
+  -DKokkos_ENABLE_SERIAL=ON \
+  -DKokkos_ENABLE_OPENMP=OFF \
+  -DKokkos_ENABLE_CUDA=ON \
+  -DKokkos_ARCH_BLACKWELL120=ON \
+  -DKokkos_ENABLE_EXAMPLES=ON
+cmake --build build-launch-cuda --target Kokkos_launch_bounds_particles -j
+```
+
+Measured results from this repository on 2026-04-12 with:
 
 - `1,000,000` particles
 - `200` steps
-- `OpenMP` run with `OMP_NUM_THREADS=16`
+- `Release` builds
+- `OpenMP` run with `OMP_NUM_THREADS=16 OMP_PROC_BIND=spread OMP_PLACES=threads`
+- `CUDA` configured with `Kokkos_ARCH_BLACKWELL120=ON`
+- GPU verified with `nvidia-smi` as `NVIDIA GeForce RTX 5070 Ti` with compute capability `12.0`
 
 Measured results:
 
-| Backend | Prepare data time | Baseline total time | Per-step time |
-|---------|-------------------|---------------------|---------------|
-| Serial | `636.890 ms` | `77561.229 ms` | `387.806143 ms` |
-| OpenMP | `639.532 ms` | `4999.014 ms` | `24.995070 ms` |
-| MACA | `603.638 ms` | `29.702 ms` | `0.148508 ms` |
+| Backend | Build tree | Status | Prepare data time | Baseline total time | Per-step time |
+|---------|------------|--------|-------------------|---------------------|---------------|
+| Serial | `build-launch-serial` | ran | `8.052 ms` | `518.860 ms` | `2.594302 ms` |
+| OpenMP | `build-launch-openmp` | ran | `8.240 ms` | `110.024 ms` | `0.550122 ms` |
+| CUDA | `build-launch-cuda` | ran | `26.553 ms` | `4.304 ms` | `0.021522 ms` |
+| MACA | `build-maca-tests` | reference run from 2026-04-11 | `603.638 ms` | `29.702 ms` | `0.148508 ms` |
 
-Relative speedups from that run:
+Relative speedups from the runnable local builds:
 
-- OpenMP vs Serial: about `15.5x`
-- MACA vs OpenMP: about `168x`
-- MACA vs Serial: about `2611x`
+- OpenMP vs Serial: about `4.7x`
+- CUDA vs OpenMP: about `25.6x`
+- CUDA vs Serial: about `121x`
 
-The aggregate physics metrics matched across the three backends to the printed
-precision:
+The aggregate physics metrics matched across the runnable local backends to the
+printed precision:
 
 ```text
 active=999984
 avg_height=0.000077
-total_ke=411.5740xx
+total_ke=411.574037 to 411.574039
 max_speed=1.566976
 ```
 
-These numbers are hardware- and build-dependent. Use them as an example
-reference for this tree, not as a guaranteed backend ratio.
+The earlier MXMACA reference run on 2026-04-11 also printed matching metrics to
+the same displayed precision.
+
+These numbers are hardware-, compiler-, and build-type dependent. The `MACA`
+row above came from a different toolchain/configuration and should be treated
+as a separate reference point, not as a normalized apples-to-apples comparison
+with the local GNU/nvcc `Release` builds.
 
 ## Sanity Checks
 
