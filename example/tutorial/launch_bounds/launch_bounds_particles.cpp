@@ -49,9 +49,9 @@ struct SimulationParams {
 };
 
 struct SimulationMetrics {
-  double average_height;
-  double total_kinetic_energy;
-  double max_speed;
+  float average_height;
+  float total_kinetic_energy;
+  float max_speed;
   long long active_particles;
 };
 
@@ -150,33 +150,26 @@ void step_particles_with_policy(const char* label, const Policy& policy,
       return;
     }
 
-    float vx = vel_x(i) + params.dt * force_x(i) * w;
-    float vy = vel_y(i) + params.dt * force_y(i) * w;
-    float vz = vel_z(i) + params.dt * force_z(i) * w;
+    vel_x(i) += params.dt * force_x(i) * w;
+    vel_y(i) += params.dt * force_y(i) * w;
+    vel_z(i) += params.dt * force_z(i) * w;
 
-    vx *= params.damping;
-    vy *= params.damping;
-    vz *= params.damping;
+    vel_x(i) *= params.damping;
+    vel_y(i) *= params.damping;
+    vel_z(i) *= params.damping;
 
-    float px = pos_x(i) + params.dt * vx;
-    float py = pos_y(i) + params.dt * vy;
-    float pz = pos_z(i) + params.dt * vz;
+    pos_x(i) += params.dt * vel_x(i);
+    pos_y(i) += params.dt * vel_y(i);
+    pos_z(i) += params.dt * vel_z(i);
 
-    if (py < params.ground_y) {
-      py = params.ground_y;
-      if (vy < 0.0f) {
-        vy = -vy * params.restitution;
+    if (pos_y(i) < params.ground_y) {
+      pos_y(i) = params.ground_y;
+      if (vel_y(i) < 0.0f) {
+        vel_y(i) = -vel_y(i) * params.restitution;
       }
-      vx *= params.ground_friction;
-      vz *= params.ground_friction;
+      vel_x(i) *= params.ground_friction;
+      vel_z(i) *= params.ground_friction;
     }
-
-    pos_x(i) = px;
-    pos_y(i) = py;
-    pos_z(i) = pz;
-    vel_x(i) = vx;
-    vel_y(i) = vy;
-    vel_z(i) = vz;
   });
 }
 
@@ -204,10 +197,10 @@ SimulationMetrics compute_metrics(const ParticleSystem& ps) {
   const auto inv_mass = ps.inv_mass;
   Kokkos::RangePolicy<exec_space> policy(0, static_cast<int>(ps.size()));
 
-  double height_sum = 0.0;
+  float height_sum = 0.0f;
   Kokkos::parallel_reduce(
       "metrics_height_sum", policy,
-      KOKKOS_LAMBDA(const int i, double& local_sum) { local_sum += pos_y(i); },
+      KOKKOS_LAMBDA(const int i, float& local_sum) { local_sum += pos_y(i); },
       height_sum);
 
   long long active_particles = 0;
@@ -220,38 +213,39 @@ SimulationMetrics compute_metrics(const ParticleSystem& ps) {
       },
       active_particles);
 
-  double total_kinetic_energy = 0.0;
+  float total_kinetic_energy = 0.0f;
   Kokkos::parallel_reduce(
       "metrics_total_ke", policy,
-      KOKKOS_LAMBDA(const int i, double& local_ke) {
+      KOKKOS_LAMBDA(const int i, float& local_ke) {
         const float w = inv_mass(i);
         if (w != 0.0f) {
-          const double mass = 1.0 / static_cast<double>(w);
-          const double vx   = static_cast<double>(vel_x(i));
-          const double vy   = static_cast<double>(vel_y(i));
-          const double vz   = static_cast<double>(vel_z(i));
-          const double v2   = vx * vx + vy * vy + vz * vz;
-          local_ke += 0.5 * mass * v2;
+          const float mass = 1.0f / w;
+          const float vx   = vel_x(i);
+          const float vy   = vel_y(i);
+          const float vz   = vel_z(i);
+          const float v2   = vx * vx + vy * vy + vz * vz;
+          local_ke += 0.5f * mass * v2;
         }
       },
       total_kinetic_energy);
 
-  double max_speed_sq = 0.0;
+  float max_speed_sq = 0.0f;
   Kokkos::parallel_reduce(
       "metrics_max_speed_sq", policy,
-      KOKKOS_LAMBDA(const int i, double& local_max) {
-        const double vx = static_cast<double>(vel_x(i));
-        const double vy = static_cast<double>(vel_y(i));
-        const double vz = static_cast<double>(vel_z(i));
-        const double v2 = vx * vx + vy * vy + vz * vz;
+      KOKKOS_LAMBDA(const int i, float& local_max) {
+        const float vx = vel_x(i);
+        const float vy = vel_y(i);
+        const float vz = vel_z(i);
+        const float v2 = vx * vx + vy * vy + vz * vz;
         if (v2 > local_max) {
           local_max = v2;
         }
       },
-      Kokkos::Max<double>(max_speed_sq));
+      Kokkos::Max<float>(max_speed_sq));
 
-  const double average_height =
-      ps.size() > 0 ? height_sum / static_cast<double>(ps.size()) : 0.0;
+  const float average_height = ps.size() > 0
+                                   ? height_sum / static_cast<float>(ps.size())
+                                   : 0.0f;
   return {average_height, total_kinetic_energy, std::sqrt(max_speed_sq),
           active_particles};
 }
