@@ -32,6 +32,7 @@ import kokkos.core;
 #pragma GCC diagnostic ignored "-Wsuggest-override"
 
 #include <thrust/device_ptr.h>
+#include <thrust/system/cuda/execution_policy.h>
 #include <thrust/sort.h>
 
 #pragma GCC diagnostic pop
@@ -184,7 +185,11 @@ void sort_cudathrust(const Cuda& space,
   if (view.extent(0) <= 1) {
     return;
   }
+#if defined(KOKKOS_IMPL_CU_BRIDGE)
+  const auto exec = thrust::mc::par.on(space.cuda_stream());
+#else
   const auto exec = thrust::cuda::par.on(space.cuda_stream());
+#endif
   auto first      = ::Kokkos::Experimental::begin(view);
   auto last       = ::Kokkos::Experimental::end(view);
   thrust::sort(exec, first, last,
