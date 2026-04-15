@@ -25,6 +25,12 @@ using Lambda = decltype(func);
 #if defined(__NVCC__) && !defined(__CUDA_ARCH__)
 // can't do much
 // it looks like that there is 1st an EDG pass and then a host pass and they cannot both agree on what the type info is
+#elif defined(KOKKOS_IMPL_CU_BRIDGE)
+static_assert(TypeInfo<Foo>::name().ends_with("::Foo"));
+static_assert(TypeInfo<FooAlias>::name().ends_with("::Foo"));
+static_assert(TypeInfo<Bar>::name().ends_with("::Bar"));
+static_assert(TypeInfo<Baz>::name().ends_with("::Baz"));
+static_assert(TypeInfo<Lambda>::name().find("lambda") != TypeInfo<Lambda>::name().npos);
 #elif defined(__EDG__) || (defined(__NVCC__) && defined(__CUDA_ARCH__))
 static_assert(TypeInfo<Foo>::name()      == "<unnamed>::Foo");
 static_assert(TypeInfo<FooAlias>::name() == "<unnamed>::Foo");

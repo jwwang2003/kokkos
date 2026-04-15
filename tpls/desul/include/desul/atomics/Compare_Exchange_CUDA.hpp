@@ -22,7 +22,7 @@ SPDX-License-Identifier: (BSD-3-Clause)
 // We simply can say DESUL proper doesn't support clang CUDA build pre Volta,
 // Kokkos has that knowledge and so I use it here, allowing in Kokkos to use
 // clang with pre Volta as CUDA compiler
-#ifndef DESUL_CUDA_ARCH_IS_PRE_VOLTA
+#if !defined(DESUL_CUDA_ARCH_IS_PRE_VOLTA) && !defined(KOKKOS_IMPL_CU_BRIDGE)
 
 #include <desul/atomics/cuda/CUDA_asm_exchange.hpp>
 

@@ -35,6 +35,7 @@ import kokkos.core;
 #else
 #include <thrust/distance.h>
 #endif
+#include <thrust/system/cuda/execution_policy.h>
 #include <thrust/scan.h>
 
 #elif defined(KOKKOS_ENABLE_ROCTHRUST)
@@ -130,7 +131,11 @@ template <class InputIteratorType, class OutputIteratorType>
 OutputIteratorType inclusive_scan_default_op_exespace_impl(
     const std::string& label, const Cuda& ex, InputIteratorType first_from,
     InputIteratorType last_from, OutputIteratorType first_dest) {
+#if defined(KOKKOS_IMPL_CU_BRIDGE)
+  const auto thrust_ex = thrust::mc::par.on(ex.cuda_stream());
+#else
   const auto thrust_ex = thrust::cuda::par.on(ex.cuda_stream());
+#endif
 
   Kokkos::Profiling::pushRegion(label + " via thrust::inclusive_scan");
 
@@ -219,7 +224,11 @@ OutputIteratorType inclusive_scan_custom_binary_op_exespace_impl(
     const std::string& label, const Cuda& ex, InputIteratorType first_from,
     InputIteratorType last_from, OutputIteratorType first_dest,
     BinaryOpType binary_op) {
+#if defined(KOKKOS_IMPL_CU_BRIDGE)
+  const auto thrust_ex = thrust::mc::par.on(ex.cuda_stream());
+#else
   const auto thrust_ex = thrust::cuda::par.on(ex.cuda_stream());
+#endif
 
   Kokkos::Profiling::pushRegion(label + " via thrust::inclusive_scan");
 

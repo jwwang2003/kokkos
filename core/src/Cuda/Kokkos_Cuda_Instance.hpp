@@ -25,8 +25,8 @@ extern "C" void kokkos_impl_cuda_set_serial_execution(bool);
 extern "C" bool kokkos_impl_cuda_use_serial_execution();
 #endif
 
-#if defined(KOKKOS_COMPILER_NVCC) && !defined(KOKKOS_ARCH_MAXWELL) && \
-    !defined(KOKKOS_ARCH_PASCAL)
+#if defined(KOKKOS_COMPILER_NVCC) && !defined(KOKKOS_IMPL_CU_BRIDGE) && \
+    !defined(KOKKOS_ARCH_MAXWELL) && !defined(KOKKOS_ARCH_PASCAL)
 #define KOKKOS_IMPL_CUDA_USE_GRID_CONSTANT
 #endif
 

@@ -27,6 +27,7 @@ import kokkos.core;
 #pragma GCC diagnostic ignored "-Wsuggest-override"
 
 #include <thrust/device_ptr.h>
+#include <thrust/system/cuda/execution_policy.h>
 #include <thrust/sort.h>
 
 #pragma GCC diagnostic pop
@@ -101,7 +102,11 @@ void sort_by_key_cudathrust(
     const Kokkos::View<KeysDataType, KeysProperties...>& keys,
     const Kokkos::View<ValuesDataType, ValuesProperties...>& values,
     MaybeComparator&&... maybeComparator) {
+#if defined(KOKKOS_IMPL_CU_BRIDGE)
+  const auto policy = thrust::mc::par.on(exec.cuda_stream());
+#else
   const auto policy = thrust::cuda::par.on(exec.cuda_stream());
+#endif
   auto keys_first   = ::Kokkos::Experimental::begin(keys);
   auto keys_last    = ::Kokkos::Experimental::end(keys);
   auto values_first = ::Kokkos::Experimental::begin(values);
