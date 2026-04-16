@@ -525,6 +525,7 @@ struct MacaParallelLaunchKernelInvoker<DriverType, LaunchBounds,
     maca_instance->set_maca_device();
     (base_t::get_kernel_func())<<<grid, block, shmem, maca_instance->m_stream>>>(
         driver_ptr);
+    maca_instance->mark_functor_for_execution(driver_ptr);
   }
 
   static void create_parallel_launch_graph_node(

@@ -10,6 +10,14 @@ namespace Kokkos {
 namespace Impl {
 
 constexpr unsigned long long shfl_all_mask = 0xffffffffffffffffULL;
+constexpr int maca_shuffle_width_limit      = int(8 * sizeof(shfl_all_mask));
+
+KOKKOS_FUNCTION constexpr unsigned long long maca_shuffle_group_mask(
+    int width, int lane, int warp_size = maca_shuffle_width_limit) noexcept {
+  return width <= 0 || warp_size <= 0 || lane < 0 || lane >= warp_size ? 0ULL
+         : width >= warp_size ? shfl_all_mask
+         : ((1ULL << width) - 1ULL) << ((lane / width) * width);
+}
 
 //----------------------------------------------------------------------------
 // Shuffle operations require input to be a register (stack) variable
@@ -30,7 +38,7 @@ struct in_place_shfl_op {
   // requires _assignable_from_bits<Scalar>
   __device__ inline std::enable_if_t<sizeof(Scalar) < sizeof(int)> operator()(
       Scalar& out, Scalar const& in, int lane_or_delta,
-      int width) const noexcept {
+      int width, unsigned long long mask = shfl_all_mask) const noexcept {
     using shfl_type = int;
     union conv_type {
       Scalar orig;
@@ -45,7 +53,7 @@ struct in_place_shfl_op {
     tmp_out = reinterpret_cast<shfl_type&>(tmp_in.orig);
     conv_type res;
     //------------------------------------------------
-    res.conv = self().do_shfl_op(tmp_out, lane_or_delta, width);
+    res.conv = self().do_shfl_op(mask, tmp_out, lane_or_delta, width);
     //------------------------------------------------
     out = reinterpret_cast<Scalar&>(res.conv);
   }
@@ -55,29 +63,29 @@ struct in_place_shfl_op {
   // requires _assignable_from_bits<Scalar>
   __device__ inline std::enable_if_t<sizeof(Scalar) == sizeof(int)> operator()(
       Scalar& out, Scalar const& in, int lane_or_delta,
-      int width) const noexcept {
+      int width, unsigned long long mask = shfl_all_mask) const noexcept {
     reinterpret_cast<int&>(out) = self().do_shfl_op(
-        reinterpret_cast<int const&>(in), lane_or_delta, width);
+        mask, reinterpret_cast<int const&>(in), lane_or_delta, width);
   }
 
   template <class Scalar>
   __device__ inline std::enable_if_t<sizeof(Scalar) == sizeof(double)>
   operator()(Scalar& out, Scalar const& in, int lane_or_delta,
-             int width) const noexcept {
+             int width, unsigned long long mask = shfl_all_mask) const noexcept {
     reinterpret_cast<double&>(out) = self().do_shfl_op(
-        *reinterpret_cast<double const*>(&in), lane_or_delta, width);
+        mask, *reinterpret_cast<double const*>(&in), lane_or_delta, width);
   }
 
   // sizeof(Scalar) > sizeof(double) case
   template <typename Scalar>
   __device__ inline std::enable_if_t<(sizeof(Scalar) > sizeof(double))>
   operator()(Scalar& out, const Scalar& val, int lane_or_delta,
-             int width) const noexcept {
+             int width, unsigned long long mask = shfl_all_mask) const noexcept {
     using shuffle_as_t = int;
     constexpr int N    = sizeof(Scalar) / sizeof(shuffle_as_t);
 
     for (int i = 0; i < N; ++i) {
-      reinterpret_cast<shuffle_as_t*>(&out)[i] = self().do_shfl_op(
+      reinterpret_cast<shuffle_as_t*>(&out)[i] = self().do_shfl_op(mask,
           reinterpret_cast<shuffle_as_t const*>(&val)[i], lane_or_delta, width);
     }
     // FIXME_MACA - this fence should be removed once the compiler frontend
@@ -88,9 +96,10 @@ struct in_place_shfl_op {
 
 struct in_place_shfl_fn : in_place_shfl_op<in_place_shfl_fn> {
   template <class T>
-  __device__ KOKKOS_IMPL_FORCEINLINE T do_shfl_op(T& val, int lane,
+  __device__ KOKKOS_IMPL_FORCEINLINE T do_shfl_op(unsigned long long mask,
+                                                  T& val, int lane,
                                                   int width) const noexcept {
-    auto return_val = __shfl_sync(shfl_all_mask, val, lane, width);
+    auto return_val = __shfl_sync(mask, val, lane, width);
     return return_val;
   }
 };
@@ -102,9 +111,10 @@ __device__ KOKKOS_IMPL_FORCEINLINE void in_place_shfl(Args&&... args) noexcept {
 
 struct in_place_shfl_up_fn : in_place_shfl_op<in_place_shfl_up_fn> {
   template <class T>
-  __device__ KOKKOS_IMPL_FORCEINLINE T do_shfl_op(T& val, int lane,
+  __device__ KOKKOS_IMPL_FORCEINLINE T do_shfl_op(unsigned long long mask,
+                                                  T& val, int lane,
                                                   int width) const noexcept {
-    auto return_val = __shfl_up_sync(shfl_all_mask, val, lane, width);
+    auto return_val = __shfl_up_sync(mask, val, lane, width);
     return return_val;
   }
 };
@@ -117,9 +127,10 @@ __device__ KOKKOS_IMPL_FORCEINLINE void in_place_shfl_up(
 
 struct in_place_shfl_down_fn : in_place_shfl_op<in_place_shfl_down_fn> {
   template <class T>
-  __device__ KOKKOS_IMPL_FORCEINLINE T do_shfl_op(T& val, int lane,
+  __device__ KOKKOS_IMPL_FORCEINLINE T do_shfl_op(unsigned long long mask,
+                                                  T& val, int lane,
                                                   int width) const noexcept {
-    auto return_val = __shfl_down_sync(shfl_all_mask, val, lane, width);
+    auto return_val = __shfl_down_sync(mask, val, lane, width);
     return return_val;
   }
 };
@@ -134,25 +145,28 @@ __device__ KOKKOS_IMPL_FORCEINLINE void in_place_shfl_down(
 
 template <class T>
 // requires default_constructible<T> && _assignable_from_bits<T>
-__device__ inline T shfl(const T& val, const int& srcLane, const int& width) {
+__device__ inline T shfl(const T& val, const int& srcLane, const int& width,
+                         unsigned long long mask = Impl::shfl_all_mask) {
   T rv = {};
-  Impl::in_place_shfl(rv, val, srcLane, width);
+  Impl::in_place_shfl(rv, val, srcLane, width, mask);
   return rv;
 }
 
 template <class T>
 // requires default_constructible<T> && _assignable_from_bits<T>
-__device__ inline T shfl_down(const T& val, int delta, int width) {
+__device__ inline T shfl_down(const T& val, int delta, int width,
+                              unsigned long long mask = Impl::shfl_all_mask) {
   T rv = {};
-  Impl::in_place_shfl_down(rv, val, delta, width);
+  Impl::in_place_shfl_down(rv, val, delta, width, mask);
   return rv;
 }
 
 template <class T>
 // requires default_constructible<T> && _assignable_from_bits<T>
-__device__ inline T shfl_up(const T& val, int delta, int width) {
+__device__ inline T shfl_up(const T& val, int delta, int width,
+                            unsigned long long mask = Impl::shfl_all_mask) {
   T rv = {};
-  Impl::in_place_shfl_up(rv, val, delta, width);
+  Impl::in_place_shfl_up(rv, val, delta, width, mask);
   return rv;
 }
 

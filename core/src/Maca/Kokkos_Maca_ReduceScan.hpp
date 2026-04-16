@@ -38,12 +38,16 @@ struct MacaReductionsFunctor<FunctorType, true> {
                                // part of the reduction
       int const width,         // How much of the warp participates
       Scalar& result) {
+    int const lane =
+        (threadIdx.y * blockDim.x + threadIdx.x) % int(MacaTraits::WarpSize);
+    auto const mask =
+        Impl::maca_shuffle_group_mask(width, lane, MacaTraits::WarpSize);
     for (int delta = skip_vector ? blockDim.x : 1; delta < width; delta *= 2) {
-      Scalar tmp = shfl_down(value, delta, width);
+      Scalar tmp = shfl_down(value, delta, width, mask);
       functor.join(&value, &tmp);
     }
 
-    in_place_shfl(result, value, 0, width);
+    in_place_shfl(result, value, 0, width, mask);
   }
 
   __device__ static inline void scalar_intra_block_reduction(

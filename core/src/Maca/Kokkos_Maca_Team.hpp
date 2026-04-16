@@ -126,7 +126,15 @@ class MacaTeamMember {
       val = *(reinterpret_cast<ValueType*>(m_team_reduce));
     } else {               // team <= warp
       ValueType tmp(val);  // input might not be a register variable
-      in_place_shfl(val, tmp, blockDim.x * thread_id, blockDim.x * blockDim.y);
+      int const lane = (((threadIdx.z * blockDim.y) + threadIdx.y) *
+                            blockDim.x +
+                        threadIdx.x) %
+                       MacaTraits::WarpSize;
+      auto const mask =
+          Impl::maca_shuffle_group_mask(blockDim.x * blockDim.y, lane,
+                                        MacaTraits::WarpSize);
+      in_place_shfl(val, tmp, blockDim.x * thread_id, blockDim.x * blockDim.y,
+                    mask);
     }
 #else
     (void)val;
@@ -309,12 +317,17 @@ class MacaTeamMember {
 #ifdef __MACA_ARCH__
     if (blockDim.x == 1) return;
 
+    int const lane =
+        (threadIdx.y * blockDim.x + threadIdx.x) % MacaTraits::WarpSize;
+    auto const mask = Impl::maca_shuffle_group_mask(blockDim.x, lane,
+                                                    MacaTraits::WarpSize);
+
     // Intra vector lane shuffle reduction:
     typename WrappedReducerType::value_type tmp(value);
     typename WrappedReducerType::value_type tmp2 = tmp;
 
     for (int i = blockDim.x; (i >>= 1);) {
-      in_place_shfl_down(tmp2, tmp, i, blockDim.x);
+      in_place_shfl_down(tmp2, tmp, i, blockDim.x, mask);
       if (static_cast<int>(threadIdx.x) < i) {
         wrapped_reducer.join(&tmp, &tmp2);
       }
@@ -325,7 +338,7 @@ class MacaTeamMember {
     // because floating point summation is not associative
     // and thus different threads could have different results.
 
-    in_place_shfl(tmp2, tmp, 0, blockDim.x);
+    in_place_shfl(tmp2, tmp, 0, blockDim.x, mask);
     value = tmp2;
 #else
     (void)wrapped_reducer;
@@ -871,6 +884,10 @@ parallel_scan(const Impl::ThreadVectorRangeBoundariesStruct<
   const int mask = blockDim.x - 1;
   const int rem  = loop_boundaries.end & mask;  // == end % blockDim.x
   const int end  = loop_boundaries.end + (rem ? blockDim.x - rem : 0);
+  int const lane =
+      (threadIdx.y * blockDim.x + threadIdx.x) % Impl::maca_shuffle_width_limit;
+  auto const shfl_mask = Impl::maca_shuffle_group_mask(
+      blockDim.x, lane, Impl::maca_shuffle_width_limit);
 
   for (int i = threadIdx.x; i < end; i += blockDim.x) {
     value_type val = identity;
@@ -897,7 +914,7 @@ parallel_scan(const Impl::ThreadVectorRangeBoundariesStruct<
     //  inversion.
     for (int j = 1; j < static_cast<int>(blockDim.x); j <<= 1) {
       value_type tmp = identity;
-      Impl::in_place_shfl_up(tmp, val, j, blockDim.x);
+      Impl::in_place_shfl_up(tmp, val, j, blockDim.x, shfl_mask);
       if (j <= static_cast<int>(threadIdx.x)) {
         reducer.join(val, tmp);
       }
@@ -909,7 +926,7 @@ parallel_scan(const Impl::ThreadVectorRangeBoundariesStruct<
     // Update i's contribution into the val
     // and add it to accum for next round
     if (i < loop_boundaries.end) closure(i, val, true);
-    Impl::in_place_shfl(accum, val, blockDim.x - 1, blockDim.x);
+    Impl::in_place_shfl(accum, val, blockDim.x - 1, blockDim.x, shfl_mask);
   }
   reducer.reference() = accum;
 #else
@@ -999,7 +1016,11 @@ KOKKOS_INLINE_FUNCTION void single(
     const FunctorType& lambda, ValueType& val) {
 #ifdef __MACA_ARCH__
   if (threadIdx.x == 0) lambda(val);
-  Impl::in_place_shfl(val, val, 0, blockDim.x);
+  int const lane =
+      (threadIdx.y * blockDim.x + threadIdx.x) % Impl::maca_shuffle_width_limit;
+  auto const shfl_mask = Impl::maca_shuffle_group_mask(
+      blockDim.x, lane, Impl::maca_shuffle_width_limit);
+  Impl::in_place_shfl(val, val, 0, blockDim.x, shfl_mask);
 #else
   (void)lambda;
   (void)val;

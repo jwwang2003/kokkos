@@ -188,6 +188,63 @@ unsigned maca_deduce_blocksize_with_occupancy(
   return unsigned(best_block_size);
 }
 
+template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
+          MacaLaunchMechanism LaunchMechanism =
+              DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
+unsigned maca_get_opt_block_size_no_shmem(
+    MacaInternal const *maca_instance) {
+  auto const &prop = maca_instance->m_deviceProp;
+  auto const attr  = get_maca_func_attributes_impl<DriverType, LaunchBounds,
+                                                   BlockType::Preferred,
+                                                   LaunchMechanism>(
+      maca_instance->m_macaDev);
+  auto const kernel_func =
+      MacaParallelLaunch<DriverType, LaunchBounds, LaunchMechanism>::
+          get_kernel_func();
+
+  maca_instance->set_maca_device();
+
+  const int warp_size =
+      std::max(1, int(prop.warpSize > 0 ? prop.warpSize : MacaTraits::WarpSize));
+  int max_threads_per_block =
+      std::min(attr.maxThreadsPerBlock,
+               LaunchBounds::maxTperB == 0 ? int(prop.maxThreadsPerBlock)
+                                           : int(LaunchBounds::maxTperB));
+  max_threads_per_block = (max_threads_per_block / warp_size) * warp_size;
+  if (max_threads_per_block < warp_size) return 0;
+
+  const int min_blocks_per_sm =
+      LaunchBounds::minBperSM == 0 ? 1 : int(LaunchBounds::minBperSM);
+  int best_block_size     = 0;
+  int best_threads_per_sm = 0;
+
+  for (int block_size = max_threads_per_block; block_size >= warp_size;
+       block_size -= warp_size) {
+    int blocks_per_sm = 0;
+    auto const err    = macaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &blocks_per_sm, reinterpret_cast<void const *>(kernel_func), block_size,
+        0);
+
+    if (err != macaSuccess) return 0;
+
+    int threads_per_sm = blocks_per_sm * block_size;
+    if (threads_per_sm > prop.maxThreadsPerMultiProcessor) {
+      blocks_per_sm  = prop.maxThreadsPerMultiProcessor / block_size;
+      threads_per_sm = blocks_per_sm * block_size;
+    }
+
+    if (blocks_per_sm >= min_blocks_per_sm) {
+      if ((threads_per_sm > best_threads_per_sm) ||
+          ((block_size >= 128) && (threads_per_sm == best_threads_per_sm))) {
+        best_block_size     = block_size;
+        best_threads_per_sm = threads_per_sm;
+      }
+    }
+  }
+
+  return unsigned(best_block_size);
+}
+
 // Given an initial block-size limitation based on register usage
 // determine the block size to select based on LDS limitation
 template <BlockType BlockSize, class DriverType, class LaunchBounds,
@@ -272,6 +329,12 @@ unsigned get_preferred_blocksize_for_range(MacaInternal const *maca_instance,
       threadsPerEU =
           std::min(threadsPerEU, unsigned(MacaTraits::MaxThreadsPerBlock));
       return threadsPerEU;
+    }
+    if (const unsigned occupancy_blocksize =
+            maca_get_opt_block_size_no_shmem<DriverType, LaunchBounds,
+                                             LaunchMechanism>(maca_instance);
+        occupancy_blocksize != 0) {
+      return occupancy_blocksize;
     }
   }
   const int maca_device = maca_instance->m_macaDev;

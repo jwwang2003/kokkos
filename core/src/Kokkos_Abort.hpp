@@ -75,7 +75,7 @@ device_abort(const char *const msg) {
 #elif defined(KOKKOS_ENABLE_HIP)
   ::Kokkos::Impl::hip_abort(msg);
 #elif defined(KOKKOS_ENABLE_MACA)
-  ::Kokkos::Impl::hip_abort(msg);
+  ::Kokkos::Impl::maca_abort(msg);
 #elif defined(KOKKOS_ENABLE_SYCL)
   ::Kokkos::Impl::sycl_abort(msg);
 #elif defined(KOKKOS_ENABLE_OPENACC)

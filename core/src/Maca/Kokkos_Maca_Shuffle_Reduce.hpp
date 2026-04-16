@@ -28,8 +28,13 @@ __device__ inline void maca_intra_warp_shuffle_reduction(
 
   // Reduce over values from threads with different threadIdx.y
   constexpr unsigned int warp_size = MacaTraits::WarpSize;
+  int const lane =
+      (threadIdx.y * blockDim.x + threadIdx.x) % int(warp_size);
+  auto const mask =
+      Impl::maca_shuffle_group_mask(int(max_active_thread), lane, warp_size);
   while (blockDim.x * shift < warp_size) {
-    ValueType const tmp = shfl_down(result, blockDim.x * shift, warp_size);
+    ValueType const tmp =
+        shfl_down(result, blockDim.x * shift, warp_size, mask);
     // Only join if upper thread is active (this allows non power of two for
     // blockDim.y)
     if (threadIdx.y + shift < max_active_thread) {
@@ -39,7 +44,7 @@ __device__ inline void maca_intra_warp_shuffle_reduction(
   }
 
   // Broadcast the result to all the threads in the warp
-  result = shfl(result, 0, warp_size);
+  result = shfl(result, 0, warp_size, mask);
 }
 
 template <typename ValueType, typename ReducerType>
@@ -113,11 +118,12 @@ __device__ inline bool maca_inter_block_shuffle_reduction(
   __syncthreads();
   constexpr int warp_size = MacaTraits::WarpSize;
   if (id < warp_size) {
+    unsigned long long const active_mask = __activemask();
     Maca::size_type count;
 
     // Figure out whether this is the last block
     if (id == 0) count = Kokkos::atomic_fetch_add(m_scratch_flags, 1);
-    count = shfl(count, 0, warp_size);
+    count = shfl(count, 0, warp_size, active_mask);
 
     // Last block does the inter block reduction
     if (count == gridDim.x - 1) {
@@ -142,9 +148,10 @@ __device__ inline bool maca_inter_block_shuffle_reduction(
       // valid (allows gridDim.x non power of two and <warp_size)
       for (unsigned int i = 1; i < warp_size; i *= 2) {
         if (active_threads > int(i)) {
-          value_type tmp = shfl_down(value, i, warp_size);
+          value_type tmp = shfl_down(value, i, warp_size, active_mask);
           if (id + i < gridDim.x) reducer.join(&value, &tmp);
         }
+        __syncwarp(active_mask);
       }
     }
   }

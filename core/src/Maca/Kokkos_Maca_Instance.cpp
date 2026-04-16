@@ -257,23 +257,38 @@ Kokkos::Maca::size_type *MacaInternal::scratch_flags(const std::size_t size) {
 
 Kokkos::Maca::size_type *MacaInternal::stage_functor_for_execution(
     void const *driver, std::size_t const size) const {
-  if (verify_is_initialized("scratch_functor") && m_scratchFunctorSize < size) {
-    auto device_mem_space =
-        Kokkos::MacaSpace::impl_create(m_macaDev, m_stream);
-    auto host_mem_space =
-        Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
+  if (!verify_is_initialized("scratch_functor")) return nullptr;
 
-    if (m_scratchFunctor) {
-      device_mem_space.deallocate(m_scratchFunctor, m_scratchFunctorSize);
-      host_mem_space.deallocate(m_scratchFunctorHost, m_scratchFunctorSize);
+  auto device_mem_space = Kokkos::MacaSpace::impl_create(m_macaDev, m_stream);
+  auto host_mem_space =
+      Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
+  auto &slot =
+      m_scratchFunctorSlots[m_nextScratchFunctorSlot % scratch_functor_slot_count];
+  m_nextScratchFunctorSlot =
+      (m_nextScratchFunctorSlot + 1) % scratch_functor_slot_count;
+
+  if (!slot.reusable) {
+    set_maca_device();
+    KOKKOS_IMPL_MACA_SAFE_CALL(
+        macaEventCreateWithFlags(&slot.reusable, macaEventDisableTiming));
+  }
+
+  if (slot.pending) {
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaEventSynchronize(slot.reusable));
+    slot.pending = false;
+  }
+
+  if (slot.size < size) {
+    if (slot.device) {
+      device_mem_space.deallocate(slot.device, slot.size);
+      host_mem_space.deallocate(slot.host, slot.size);
     }
 
-    m_scratchFunctorSize = size;
-
-    m_scratchFunctor     = static_cast<size_type *>(device_mem_space.allocate(
-        "Kokkos::InternalScratchFunctor", m_scratchFunctorSize));
-    m_scratchFunctorHost = static_cast<size_type *>(host_mem_space.allocate(
-        "Kokkos::InternalScratchFunctorHost", m_scratchFunctorSize));
+    slot.size   = size;
+    slot.device = static_cast<size_type *>(
+        device_mem_space.allocate("Kokkos::InternalScratchFunctor", slot.size));
+    slot.host   = static_cast<size_type *>(host_mem_space.allocate(
+        "Kokkos::InternalScratchFunctorHost", slot.size));
   }
 
   // When using HSA_XNACK=1, it is necessary to copy the driver to the host to
@@ -281,12 +296,24 @@ Kokkos::Maca::size_type *MacaInternal::stage_functor_for_execution(
   // Without this fix, all the atomic tests fail. It is not obvious that this
   // problem is limited to HSA_XNACK=1 even if all the tests pass when
   // HSA_XNACK=0. That's why we always copy the driver.
-  KOKKOS_IMPL_MACA_SAFE_CALL(macaStreamSynchronize(m_stream));
-  std::memcpy(m_scratchFunctorHost, driver, size);
+  std::memcpy(slot.host, driver, size);
   KOKKOS_IMPL_MACA_SAFE_CALL(maca_memcpy_async_wrapper(
-      m_scratchFunctor, m_scratchFunctorHost, size, macaMemcpyDefault));
+      slot.device, slot.host, size, macaMemcpyDefault));
 
-  return m_scratchFunctor;
+  return slot.device;
+}
+
+void MacaInternal::mark_functor_for_execution(void const *driver_ptr) const {
+  for (auto &slot : m_scratchFunctorSlots) {
+    if (slot.device != driver_ptr) continue;
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaEventRecord(slot.reusable, m_stream));
+    slot.pending = true;
+    return;
+  }
+
+  Kokkos::abort(
+      "Kokkos::MacaInternal::mark_functor_for_execution : missing scratch "
+      "functor slot\n");
 }
 
 int MacaInternal::acquire_team_scratch_space() {
@@ -350,12 +377,22 @@ MacaInternal::~MacaInternal() {
                                 m_scratchSpaceCount * sizeScratchGrain);
     device_mem_space.deallocate(m_scratchSpace,
                                 m_scratchFlagsCount * sizeScratchGrain);
+  }
 
-    if (m_scratchFunctorSize > 0) {
-      device_mem_space.deallocate(m_scratchFunctor, m_scratchFunctorSize);
-      auto host_mem_space =
-          Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
-      host_mem_space.deallocate(m_scratchFunctorHost, m_scratchFunctorSize);
+  auto host_mem_space =
+      Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
+  for (auto &slot : m_scratchFunctorSlots) {
+    if (slot.reusable) {
+      KOKKOS_IMPL_MACA_SAFE_CALL(macaEventDestroy(slot.reusable));
+      slot.reusable = nullptr;
+    }
+    if (slot.device) {
+      device_mem_space.deallocate(slot.device, slot.size);
+      host_mem_space.deallocate(slot.host, slot.size);
+      slot.device  = nullptr;
+      slot.host    = nullptr;
+      slot.size    = 0;
+      slot.pending = false;
     }
   }
 

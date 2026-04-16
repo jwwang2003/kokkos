@@ -651,6 +651,11 @@ if(Kokkos_ENABLE_MACA)
     SOURCES
     UnitTestMainInit.cpp
     ${Maca_SOURCES}
+    maca/TestMaca_XCore1000.cpp
+    maca/TestMaca_Error.cpp
+    maca/TestMaca_ViewRandomAccess.cpp
+    maca/TestMaca_TeamCollectives.cpp
+    maca/TestMaca_LaunchTuning.cpp
   )
 endif()
 

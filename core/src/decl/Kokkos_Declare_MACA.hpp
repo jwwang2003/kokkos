@@ -22,6 +22,7 @@
 #include <Maca/Kokkos_Maca_ParallelScan_Range.hpp>
 #include <Maca/Kokkos_Maca_SharedAllocationRecord.hpp>
 #include <Maca/Kokkos_Maca_UniqueToken.hpp>
+#include <Maca/Kokkos_Maca_View.hpp>
 #include <Maca/Kokkos_Maca_ZeroMemset.hpp>
 
 namespace Kokkos {

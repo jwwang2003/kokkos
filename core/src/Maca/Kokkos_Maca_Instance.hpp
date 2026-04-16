@@ -12,6 +12,7 @@
 
 #include <Maca/Kokkos_Maca_Runtime.hpp>
 
+#include <array>
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -156,6 +157,15 @@ struct SharedResourceLock {
 class MacaInternal {
  public:
   using size_type = ::Kokkos::Maca::size_type;
+  static constexpr unsigned scratch_functor_slot_count = 4;
+
+  struct ScratchFunctorSlot {
+    std::size_t size     = 0;
+    size_type *device    = nullptr;
+    size_type *host      = nullptr;
+    macaEvent_t reusable = nullptr;
+    bool pending         = false;
+  };
 
   int m_macaDev = -1;
   static int m_maxThreadsPerSM;
@@ -167,14 +177,14 @@ class MacaInternal {
   static int concurrency();
 
   // Scratch Spaces for Reductions
-  std::size_t m_scratchSpaceCount          = 0;
-  std::size_t m_scratchFlagsCount          = 0;
-  mutable std::size_t m_scratchFunctorSize = 0;
+  std::size_t m_scratchSpaceCount = 0;
+  std::size_t m_scratchFlagsCount = 0;
 
   size_type *m_scratchSpace               = nullptr;
   size_type *m_scratchFlags               = nullptr;
-  mutable size_type *m_scratchFunctor     = nullptr;
-  mutable size_type *m_scratchFunctorHost = nullptr;
+  mutable std::array<ScratchFunctorSlot, scratch_functor_slot_count>
+      m_scratchFunctorSlots = {};
+  mutable unsigned m_nextScratchFunctorSlot = 0;
   static std::mutex scratchFunctorMutex;
 
   macaStream_t m_stream = nullptr;
@@ -354,6 +364,7 @@ class MacaInternal {
   size_type *scratch_flags(std::size_t const size);
   size_type *stage_functor_for_execution(void const *driver,
                                          std::size_t const size) const;
+  void mark_functor_for_execution(void const *driver_ptr) const;
   uint32_t impl_get_instance_id() const noexcept;
   int acquire_team_scratch_space();
   // Resizing of team level 1 scratch
