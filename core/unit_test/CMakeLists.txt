@@ -524,6 +524,17 @@ if(KOKKOS_ENABLE_OPENACC AND KOKKOS_CXX_COMPILER_ID STREQUAL Clang)
   list(REMOVE_ITEM Serial_SOURCES1 ${CMAKE_CURRENT_BINARY_DIR}/serial/TestSerial_Atomics.cpp)
 endif()
 
+# mxcc currently crashes in backend lowering for the floating-point serial
+# atomic operation tests (icmp ugt/ult on double in generated IR).
+if(KOKKOS_IMPL_CU_BRIDGE)
+  list(
+    REMOVE_ITEM
+    Serial_SOURCES1
+    ${CMAKE_CURRENT_BINARY_DIR}/serial/TestSerial_AtomicOperations_float.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/serial/TestSerial_AtomicOperations_double.cpp
+  )
+endif()
+
 if(Kokkos_ENABLE_SERIAL)
   kokkos_add_executable_and_test(CoreUnitTest_Serial1 SOURCES UnitTestMainInit.cpp ${Serial_SOURCES1})
   kokkos_add_executable_and_test(CoreUnitTest_Serial2 SOURCES UnitTestMainInit.cpp ${Serial_SOURCES2})

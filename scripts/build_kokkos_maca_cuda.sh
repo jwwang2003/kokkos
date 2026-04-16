@@ -7,6 +7,9 @@ repo_root=$(cd "${script_dir}/.." && pwd)
 
 log() {
   printf '[build_kokkos_maca_cuda] %s\n' "$*"
+  if [[ "${logging_enabled:-0}" -eq 1 ]]; then
+    printf '[build_kokkos_maca_cuda] %s\n' "$*" >> "${log_file}"
+  fi
 }
 
 die() {
@@ -80,14 +83,33 @@ detect_jobs() {
 }
 
 run() {
+  local command_string
+
   printf '+'
   for arg in "$@"; do
     printf ' %q' "${arg}"
   done
   printf '\n'
+  if [[ "${logging_enabled:-0}" -eq 1 ]]; then
+    printf '+' >> "${log_file}"
+    for arg in "$@"; do
+      printf ' %q' "${arg}" >> "${log_file}"
+    done
+    printf '\n' >> "${log_file}"
+  fi
 
   if [[ "${dry_run}" -eq 0 ]]; then
-    "$@"
+    if [[ "${logging_enabled:-0}" -eq 1 ]]; then
+      if command -v script >/dev/null 2>&1; then
+        printf -v command_string '%q ' "$@"
+        command_string="${command_string% }"
+        script -q -e -f -c "${command_string}" /dev/null | tr -d '\000' | tee -a "${log_file}"
+      else
+        "$@" 2>&1 | tee -a "${log_file}"
+      fi
+    else
+      "$@"
+    fi
   fi
 }
 
@@ -153,6 +175,7 @@ link_cuda_compat_libs() {
 
 build_dir="${repo_root}/build-maca-cuda"
 install_dir=""
+log_file=""
 kokkos_arch="${KOKKOS_CU_BRIDGE_ARCH:-AMPERE80}"
 host_cc="${CC:-cc}"
 if [[ -n "${CXX:-}" ]]; then
@@ -170,6 +193,7 @@ skip_install=0
 enable_examples=0
 enable_tests=0
 enable_benchmarks=0
+logging_enabled=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -239,6 +263,7 @@ CUCC_PATH="${CUCC_PATH:-${MACA_PATH}/tools/cu-bridge}"
 [[ -x "${CUCC_PATH}/bin/cucc" ]] || die "cu-bridge compiler not found: ${CUCC_PATH}/bin/cucc"
 
 build_dir="$(abspath "${build_dir}")"
+log_file="${build_dir}/build.log"
 
 cmake_maca_cmd="${CUCC_PATH}/tools/cmake_maca"
 make_maca_cmd="${CUCC_PATH}/tools/make_maca"
@@ -268,6 +293,8 @@ fi
 
 if [[ "${dry_run}" -eq 0 ]]; then
   mkdir -p "${build_dir}"
+  : > "${log_file}"
+  logging_enabled=1
   mkdir -p "${CUBRIDGE_HOME:-${cubridge_home_default}}"
   link_tree_into_shim "${CUCC_PATH}" "${cuda_shim_root}"
   link_cuda_compat_libs "${cuda_shim_root}" "${MACA_PATH}"
@@ -314,6 +341,7 @@ declare -a cmake_args=(
 
 log "Repo root: ${repo_root}"
 log "Build dir: ${build_dir}"
+log "Build log: ${log_file}"
 log "Install dir: ${install_dir}"
 log "Host C compiler: ${host_cc}"
 log "Host C++ compiler: ${host_cxx}"
