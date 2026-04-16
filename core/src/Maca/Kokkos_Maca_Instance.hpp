@@ -33,9 +33,13 @@ struct MacaTraits {
   static constexpr int WarpSize       = 32;
   static constexpr int WarpIndexMask  = 0x001f; /* hexadecimal for 31 */
   static constexpr int WarpIndexShift = 5;      /* WarpSize == 1 << WarpShift*/
+#elif defined(KOKKOS_ARCH_XCORE1000)
+  static constexpr int WarpSize       = 64;
+  static constexpr int WarpIndexMask  = 0x003f; /* hexadecimal for 63 */
+  static constexpr int WarpIndexShift = 6;      /* WarpSize == 1 << WarpShift*/
 #else
   // MXMACA targets like xcore1000 do not currently map onto Kokkos' AMD GFX
-  // arch list. Use the conservative wavefront size used by most HIP-like GPUs.
+  // arch list. Use the conservative wavefront size used by most wave64 GPUs.
   static constexpr int WarpSize       = 64;
   static constexpr int WarpIndexMask  = 0x003f;
   static constexpr int WarpIndexShift = 6;
@@ -75,16 +79,16 @@ Maca::size_type *maca_internal_scratch_flags(const Maca &instance,
 // ...
 //
 // auto lock_for_involvement = shared_resource.lock();
-// hipStreamSynchronize(stream);
+// stream synchronization happens here;
 // shared_resource.check_if_involved_and_unlock(std::move(lock_for_involvement),
 //                                              stream);
-// hipStreamDestroy(stream);
+// stream destruction happens here.
 // @endcode
 struct SharedResourceLock {
   bool m_need_sync = false;
   std::mutex m_mutex{};
-  hipEvent_t m_event   = nullptr;
-  hipStream_t m_stream = nullptr;
+  macaEvent_t m_event   = nullptr;
+  macaStream_t m_stream = nullptr;
 
   // Acquire the right to interact in a thread-safe way.
   [[nodiscard]] auto lock() { return std::unique_lock<std::mutex>{m_mutex}; }
@@ -94,7 +98,7 @@ struct SharedResourceLock {
     auto lock = this->lock();
     if (!m_event) {
       KOKKOS_IMPL_MACA_SAFE_CALL(
-          hipEventCreateWithFlags(&m_event, hipEventDisableTiming));
+          macaEventCreateWithFlags(&m_event, macaEventDisableTiming));
     }
   }
 
@@ -103,7 +107,7 @@ struct SharedResourceLock {
   void finalize() {
     auto lock = this->lock();
     if (m_event) {
-      KOKKOS_IMPL_MACA_SAFE_CALL(hipEventDestroy(m_event));
+      KOKKOS_IMPL_MACA_SAFE_CALL(macaEventDestroy(m_event));
     }
   }
 
@@ -118,17 +122,17 @@ struct SharedResourceLock {
   // Acquire the right to use the shared resource. The instance is locked first.
   [[nodiscard]] auto acquire() {
     auto lock = this->lock();
-    if (m_need_sync) KOKKOS_IMPL_MACA_SAFE_CALL(hipEventSynchronize(m_event));
+    if (m_need_sync) KOKKOS_IMPL_MACA_SAFE_CALL(macaEventSynchronize(m_event));
     return lock;
   }
 
   // Record an event in a stream to signal when it's done with the shared
   // resource.
-  void release(std::unique_lock<std::mutex> lock, hipStream_t stream) {
+  void release(std::unique_lock<std::mutex> lock, macaStream_t stream) {
     KOKKOS_ENSURES(lock.owns_lock());
     KOKKOS_ENSURES((lock.mutex() == std::addressof(m_mutex)));
     m_stream = stream;
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipEventRecord(m_event, m_stream));
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaEventRecord(m_event, m_stream));
     m_need_sync = true;
     lock.unlock();
   }
@@ -141,7 +145,7 @@ struct SharedResourceLock {
   // that the next constant memory launch will work fine.
   // See https://github.com/kokkos/kokkos/issues/8006 for more details.
   void check_if_involved_and_unlock(std::unique_lock<std::mutex> lock,
-                                    hipStream_t stream) {
+                                    macaStream_t stream) {
     KOKKOS_ENSURES(lock.owns_lock());
     KOKKOS_ENSURES((lock.mutex() == std::addressof(m_mutex)));
     if (m_stream == stream) m_need_sync = false;
@@ -153,12 +157,12 @@ class MacaInternal {
  public:
   using size_type = ::Kokkos::Maca::size_type;
 
-  int m_hipDev = -1;
+  int m_macaDev = -1;
   static int m_maxThreadsPerSM;
 
   static HostSharedPtr<MacaInternal> default_instance;
 
-  static hipDeviceProp_t m_deviceProp;
+  static macaDeviceProp_t m_deviceProp;
 
   static int concurrency();
 
@@ -173,7 +177,7 @@ class MacaInternal {
   mutable size_type *m_scratchFunctorHost = nullptr;
   static std::mutex scratchFunctorMutex;
 
-  hipStream_t m_stream = nullptr;
+  macaStream_t m_stream = nullptr;
   bool m_allow_post_finalize_destruction = false;
   uint32_t m_instance_id =
       Kokkos::Tools::Experimental::Impl::idForInstance<Maca>(
@@ -193,7 +197,7 @@ class MacaInternal {
 
   int verify_is_initialized(const char *const label) const;
 
-  MacaInternal(hipStream_t stream);
+  MacaInternal(macaStream_t stream);
   ~MacaInternal();
   MacaInternal(const MacaInternal &)            = delete;
   MacaInternal &operator=(const MacaInternal &) = delete;
@@ -204,12 +208,12 @@ class MacaInternal {
   void fence(const std::string &) const;
 
   // Using Maca API function/objects will be w.r.t. device 0 unless
-  // hipSetDevice(device_id) is called with the correct device_id.
+  // macaSetDevice(device_id) is called with the correct device_id.
   // The correct device_id is stored in the variable
-  // MacaInternal::m_hipDev set in Maca::impl_initialize(). In the case
+  // MacaInternal::m_macaDev set in Maca::impl_initialize(). In the case
   // where multiple Maca instances are used, or threads are launched
   // using non-default Maca execution space after initialization, all Maca
-  // API calls must follow a call to hipSetDevice(device_id) when an
+  // API calls must follow a call to macaSetDevice(device_id) when an
   // execution space or MacaInternal object is provided to ensure all
   // computation is done on the correct device.
 
@@ -219,107 +223,130 @@ class MacaInternal {
   // Set the device in to the device stored by this instance for Maca API calls.
   void set_maca_device() const {
     verify_is_initialized("set_maca_device");
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_hipDev));
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_macaDev));
   }
 
-  hipError_t maca_free_wrapper(void *ptr) const {
+  macaError_t maca_free_wrapper(void *ptr) const {
     set_maca_device();
-    return hipFree(ptr);
+    return macaFree(ptr);
   }
 
-  hipError_t hip_graph_add_dependencies_wrapper(hipGraph_t graph,
-                                                const hipGraphNode_t *from,
-                                                const hipGraphNode_t *to,
-                                                size_t numDependencies) const {
+  template <typename T>
+  macaError_t maca_func_get_attributes_wrapper(macaFuncAttributes* attr,
+                                              T* entry) const {
     set_maca_device();
-    return hipGraphAddDependencies(graph, from, to, numDependencies);
+    return macaFuncGetAttributes(attr, reinterpret_cast<void const*>(entry));
   }
 
-  hipError_t maca_graph_add_empty_node_wrapper(
-      hipGraphNode_t *pGraphNode, hipGraph_t graph,
-      const hipGraphNode_t *pDependencies, size_t numDependencies) const {
+  template <typename T>
+  macaError_t maca_func_set_attribute_wrapper(T* entry, macaFuncAttribute attr,
+                                             int value) const {
     set_maca_device();
-    return hipGraphAddEmptyNode(pGraphNode, graph, pDependencies,
+    return macaFuncSetAttribute(reinterpret_cast<void const*>(entry), attr,
+                               value);
+  }
+
+  template <typename T>
+  macaError_t maca_func_set_cache_config_wrapper(T* entry,
+                                                macaFuncCache_t value) const {
+    set_maca_device();
+    return macaFuncSetCacheConfig(reinterpret_cast<void const*>(entry), value);
+  }
+
+  macaError_t maca_graph_add_dependencies_wrapper(macaGraph_t graph,
+                                                 const macaGraphNode_t *from,
+                                                 const macaGraphNode_t *to,
+                                                 size_t numDependencies) const {
+    set_maca_device();
+    return macaGraphAddDependencies(graph, from, to, numDependencies);
+  }
+
+  macaError_t maca_graph_add_empty_node_wrapper(
+      macaGraphNode_t *pGraphNode, macaGraph_t graph,
+      const macaGraphNode_t *pDependencies, size_t numDependencies) const {
+    set_maca_device();
+    return macaGraphAddEmptyNode(pGraphNode, graph, pDependencies,
                                 numDependencies);
   }
 
-  hipError_t maca_graph_add_kernel_node_wrapper(
-      hipGraphNode_t *pGraphNode, hipGraph_t graph,
-      const hipGraphNode_t *pDependencies, size_t numDependencies,
-      const hipKernelNodeParams *pNodeParams) const {
+  macaError_t maca_graph_add_kernel_node_wrapper(
+      macaGraphNode_t *pGraphNode, macaGraph_t graph,
+      const macaGraphNode_t *pDependencies, size_t numDependencies,
+      const macaKernelNodeParams *pNodeParams) const {
     set_maca_device();
-    return hipGraphAddKernelNode(pGraphNode, graph, pDependencies,
+    return macaGraphAddKernelNode(pGraphNode, graph, pDependencies,
                                  numDependencies, pNodeParams);
   }
 
-  hipError_t hip_graph_create_wrapper(hipGraph_t *pGraph,
-                                      unsigned int flags) const {
+  macaError_t maca_graph_create_wrapper(macaGraph_t *pGraph,
+                                       unsigned int flags) const {
     set_maca_device();
-    return hipGraphCreate(pGraph, flags);
+    return macaGraphCreate(pGraph, flags);
   }
 
-  hipError_t hip_graph_destroy_wrapper(hipGraph_t graph) const {
+  macaError_t maca_graph_destroy_wrapper(macaGraph_t graph) const {
     set_maca_device();
-    return hipGraphDestroy(graph);
+    return macaGraphDestroy(graph);
   }
 
-  hipError_t hip_graph_exec_destroy_wrapper(hipGraphExec_t graphExec) const {
+  macaError_t maca_graph_exec_destroy_wrapper(macaGraphExec_t graphExec) const {
     set_maca_device();
-    return hipGraphExecDestroy(graphExec);
+    return macaGraphExecDestroy(graphExec);
   }
 
-  hipError_t hip_graph_instantiate_wrapper(hipGraphExec_t *pGraphExec,
-                                           hipGraph_t graph,
-                                           hipGraphNode_t *pErrorNode,
-                                           char *pLogBuffer,
-                                           size_t bufferSize) const {
+  macaError_t maca_graph_instantiate_wrapper(macaGraphExec_t *pGraphExec,
+                                            macaGraph_t graph,
+                                            macaGraphNode_t *pErrorNode,
+                                            char *pLogBuffer,
+                                            size_t bufferSize) const {
     set_maca_device();
-    return hipGraphInstantiate(pGraphExec, graph, pErrorNode, pLogBuffer,
+    return macaGraphInstantiate(pGraphExec, graph, pErrorNode, pLogBuffer,
                                bufferSize);
   }
 
-  hipError_t hip_graph_launch_wrapper(hipGraphExec_t graphExec) const {
+  macaError_t maca_graph_launch_wrapper(macaGraphExec_t graphExec) const {
     set_maca_device();
-    return hipGraphLaunch(graphExec, m_stream);
+    return macaGraphLaunch(graphExec, m_stream);
   }
 
-  hipError_t maca_host_malloc_wrapper(
+  macaError_t maca_host_malloc_wrapper(
       void **ptr, size_t size,
-      unsigned int flags = hipHostMallocDefault) const {
+      unsigned int flags = macaHostMallocDefault) const {
     set_maca_device();
-    return hipHostMalloc(ptr, size, flags);
+    return macaHostMalloc(ptr, size, flags);
   }
 
-  hipError_t maca_memcpy_async_wrapper(void *dst, const void *src,
+  macaError_t maca_memcpy_async_wrapper(void *dst, const void *src,
                                       size_t sizeBytes,
-                                      hipMemcpyKind kind) const {
+                                      macaMemcpyKind kind) const {
     set_maca_device();
-    return hipMemcpyAsync(dst, src, sizeBytes, kind, m_stream);
+    return macaMemcpyAsync(dst, src, sizeBytes, kind, m_stream);
   }
 
-  hipError_t maca_memcpy_to_symbol_async_wrapper(const void *symbol,
+  macaError_t maca_memcpy_to_symbol_async_wrapper(const void *symbol,
                                                 const void *src,
                                                 size_t sizeBytes, size_t offset,
-                                                hipMemcpyKind kind) const {
+                                                macaMemcpyKind kind) const {
     set_maca_device();
-    return hipMemcpyToSymbolAsync(symbol, src, sizeBytes, offset, kind,
+    return macaMemcpyToSymbolAsync(symbol, src, sizeBytes, offset, kind,
                                   m_stream);
   }
 
-  hipError_t hip_memset_wrapper(void *dst, int value, size_t sizeBytes) const {
+  macaError_t maca_memset_wrapper(void *dst, int value,
+                                 size_t sizeBytes) const {
     set_maca_device();
-    return hipMemset(dst, value, sizeBytes);
+    return macaMemset(dst, value, sizeBytes);
   }
 
-  hipError_t hip_memset_async_wrapper(void *dst, int value,
-                                      size_t sizeBytes) const {
+  macaError_t maca_memset_async_wrapper(void *dst, int value,
+                                       size_t sizeBytes) const {
     set_maca_device();
-    return hipMemsetAsync(dst, value, sizeBytes, m_stream);
+    return macaMemsetAsync(dst, value, sizeBytes, m_stream);
   }
 
-  hipError_t maca_stream_create_wrapper(hipStream_t *pStream) const {
+  macaError_t maca_stream_create_wrapper(macaStream_t *pStream) const {
     set_maca_device();
-    return hipStreamCreate(pStream);
+    return macaStreamCreate(pStream);
   }
 
   // Resizing of reduction related scratch spaces
@@ -337,7 +364,7 @@ class MacaInternal {
 }  // namespace Impl
 
 namespace Experimental::Impl {
-// For each space in partition, create new hipStream_t on the same device as
+// For each space in partition, create a new stream on the same device as
 // base_instance, ignoring weights
 template <class T>
 std::vector<Maca> impl_partition_space(const Maca &base_instance,
@@ -346,7 +373,7 @@ std::vector<Maca> impl_partition_space(const Maca &base_instance,
   instances.reserve(weights.size());
   std::generate_n(
       std::back_inserter(instances), weights.size(), [&base_instance]() {
-        hipStream_t stream;
+        macaStream_t stream;
         KOKKOS_IMPL_MACA_SAFE_CALL(base_instance.impl_internal_space_instance()
                                       ->maca_stream_create_wrapper(&stream));
         return Maca(stream, Kokkos::Impl::ManageStream::yes);

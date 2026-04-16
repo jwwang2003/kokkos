@@ -60,6 +60,8 @@ class ParallelFor<FunctorType, Kokkos::TeamPolicy<Properties...>, Maca> {
  public:
   ParallelFor() = delete;
 
+  Policy const& get_policy() const { return m_policy; }
+
   __device__ inline void operator()() const {
     // Iterate this block through the league
     int64_t threadid = 0;
@@ -72,7 +74,7 @@ class ParallelFor<FunctorType, Kokkos::TeamPolicy<Properties...>, Maca> {
     for (int league_rank = blockIdx.x; league_rank < int_league_size;
          league_rank += gridDim.x) {
       this->template exec_team<work_tag>(typename Policy::member_type(
-          kokkos_impl_hip_shared_memory<void>(), m_shmem_begin, m_shmem_size,
+          kokkos_impl_maca_shared_memory<void>(), m_shmem_begin, m_shmem_size,
           static_cast<void*>(
               static_cast<char*>(m_scratch_ptr[1]) +
               ptrdiff_t(threadid /
@@ -81,7 +83,7 @@ class ParallelFor<FunctorType, Kokkos::TeamPolicy<Properties...>, Maca> {
           m_scratch_size[1], league_rank, m_league_size));
     }
     if (m_scratch_size[1] > 0) {
-      hip_release_scratch_index(m_scratch_locks, threadid);
+      maca_release_scratch_index(m_scratch_locks, threadid);
     }
   }
 
@@ -93,7 +95,7 @@ class ParallelFor<FunctorType, Kokkos::TeamPolicy<Properties...>, Maca> {
 
     using closure_type =
         ParallelFor<FunctorType, Kokkos::TeamPolicy<Properties...>, Maca>;
-    Impl::hip_parallel_launch<closure_type, launch_bounds>(
+    Impl::maca_parallel_launch<closure_type, launch_bounds>(
         *this, grid, block, shmem_size_total,
         m_policy.space().impl_internal_space_instance(),
         true);  // copy to device and execute

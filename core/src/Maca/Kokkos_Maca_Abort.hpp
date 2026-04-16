@@ -13,7 +13,7 @@ namespace Impl {
 
 // The two keywords below are not contradictory. `noinline` is a
 // directive to the optimizer.
-[[noreturn]] __device__ __attribute__((noinline)) inline void hip_abort(
+[[noreturn]] __device__ __attribute__((noinline)) inline void maca_abort(
     char const *msg) {
   const char empty[] = "";
   __assert_fail(msg, empty, 0, empty);

@@ -11,8 +11,8 @@
 namespace Kokkos {
 namespace Impl {
 
-// alternative to hipMemsetAsync, which sets the first `cnt` bytes of `dst` to 0
-void zero_with_hip_kernel(const Maca& exec_space, void* dst, size_t cnt) {
+// alternative to macaMemsetAsync, which sets the first `cnt` bytes of `dst` to 0
+void zero_with_maca_kernel(const Maca& exec_space, void* dst, size_t cnt) {
   Kokkos::parallel_for(
       "Kokkos::ZeroMemset via parallel_for",
       Kokkos::RangePolicy<Kokkos::Maca, Kokkos::IndexType<size_t>>(exec_space, 0,

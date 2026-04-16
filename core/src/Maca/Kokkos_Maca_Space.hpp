@@ -14,7 +14,7 @@
 
 #include <Kokkos_HostSpace.hpp>
 #include <Kokkos_ScratchSpace.hpp>
-#include <Maca/Kokkos_Maca_Error.hpp>  // HIP_SAFE_CALL
+#include <Maca/Kokkos_Maca_Error.hpp>  // MACA_SAFE_CALL
 
 #include <impl/Kokkos_Profiling_Interface.hpp>
 #include <impl/Kokkos_HostSharedPtr.hpp>
@@ -67,14 +67,14 @@ class MacaSpace {
   MacaSpace();
 
  private:
-  MacaSpace(int device_id, hipStream_t stream);
+  MacaSpace(int device_id, macaStream_t stream);
 
  public:
-  static MacaSpace impl_create(int device_id, hipStream_t stream) {
+  static MacaSpace impl_create(int device_id, macaStream_t stream) {
     return MacaSpace(device_id, stream);
   }
 
-  /**\brief  Allocate untracked memory in the hip space */
+  /**\brief  Allocate untracked memory in the Maca space */
 #ifdef KOKKOS_IMPL_MACA_UNIFIED_MEMORY
   template <typename ExecutionSpace>
   void* allocate(const ExecutionSpace&, const size_t arg_alloc_size) const {
@@ -96,14 +96,14 @@ class MacaSpace {
   void* allocate(const char* arg_label, const size_t arg_alloc_size,
                  const size_t arg_logical_size = 0) const;
 
-  /**\brief  Deallocate untracked memory in the hip space */
+  /**\brief  Deallocate untracked memory in the Maca space */
   void deallocate(void* const arg_alloc_ptr, const size_t arg_alloc_size) const;
   void deallocate(const char* arg_label, void* const arg_alloc_ptr,
                   const size_t arg_alloc_size,
                   const size_t arg_logical_size = 0) const;
 
  private:
-  void* impl_allocate(const int device_id, const hipStream_t stream,
+  void* impl_allocate(const int device_id, const macaStream_t stream,
                       const char* arg_label, const size_t arg_alloc_size,
                       const size_t arg_logical_size,
                       bool stream_sync_only) const;
@@ -119,7 +119,7 @@ class MacaSpace {
 
  private:
   int m_device;          // Maca device
-  hipStream_t m_stream;  // Maca stream
+  macaStream_t m_stream;  // Maca stream
 };
 
 template <>
@@ -148,10 +148,10 @@ class MacaHostPinnedSpace {
   MacaHostPinnedSpace();
 
  private:
-  MacaHostPinnedSpace(int device_id, hipStream_t stream);
+  MacaHostPinnedSpace(int device_id, macaStream_t stream);
 
  public:
-  static MacaHostPinnedSpace impl_create(int device_id, hipStream_t stream) {
+  static MacaHostPinnedSpace impl_create(int device_id, macaStream_t stream) {
     return MacaHostPinnedSpace(device_id, stream);
   }
 
@@ -189,11 +189,11 @@ class MacaHostPinnedSpace {
 
  public:
   /**\brief Return Name of the MemorySpace */
-  static constexpr const char* name() { return "HIPHostPinned"; }
+  static constexpr const char* name() { return "MacaHostPinned"; }
 
  private:
   int m_device;          // Maca device
-  hipStream_t m_stream;  // Maca stream
+  macaStream_t m_stream;  // Maca stream
 
   /*--------------------------------*/
 };
@@ -228,10 +228,10 @@ class MacaManagedSpace {
   MacaManagedSpace();
 
  private:
-  MacaManagedSpace(int device_id, hipStream_t stream);
+  MacaManagedSpace(int device_id, macaStream_t stream);
 
  public:
-  static MacaManagedSpace impl_create(int device_id, hipStream_t stream) {
+  static MacaManagedSpace impl_create(int device_id, macaStream_t stream) {
     return MacaManagedSpace(device_id, stream);
   }
 
@@ -257,7 +257,7 @@ class MacaManagedSpace {
                   const size_t arg_logical_size = 0) const;
 
   //  internal only method to determine whether page migration is supported
-  bool impl_hip_driver_check_page_migration() const;
+  bool impl_maca_driver_check_page_migration() const;
 
  private:
   void* impl_allocate(const char* arg_label, const size_t arg_alloc_size,
@@ -272,11 +272,11 @@ class MacaManagedSpace {
 
  public:
   /**\brief Return Name of the MemorySpace */
-  static constexpr const char* name() { return "HIPManaged"; }
+  static constexpr const char* name() { return "MacaManaged"; }
 
  private:
   int m_device;          // Maca device
-  hipStream_t m_stream;  // Maca stream
+  macaStream_t m_stream;  // Maca stream
   /*--------------------------------*/
 };
 

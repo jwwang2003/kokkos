@@ -27,9 +27,9 @@ namespace {
 
 struct {
   void operator()(Kokkos::Impl::MacaInternal* ptr) const {
-    hipStream_t stream = ptr->m_stream;
+    macaStream_t stream = ptr->m_stream;
     delete ptr;
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipStreamDestroy(stream));
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaStreamDestroy(stream));
   }
 } customDeleterManagesStream;
 
@@ -45,8 +45,8 @@ void Maca::impl_initialize(InitializationSettings const& settings) {
       Impl::get_gpu(settings).value_or(visible_devices[0]);
 
   KOKKOS_IMPL_MACA_SAFE_CALL(
-      hipGetDeviceProperties(&Impl::MacaInternal::m_deviceProp, maca_device_id));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(maca_device_id));
+      macaGetDeviceProperties(&Impl::MacaInternal::m_deviceProp, maca_device_id));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(maca_device_id));
 
   // Check that we are running on the expected architecture. We print a warning
   // instead of erroring out because the runtime architecture string may not
@@ -104,9 +104,8 @@ Kokkos::Maca::initialize WARNING: Could not determine that xnack is enabled.
   }
 #endif
 
-  // theoretically on GFX 9XX GPUs, we can get 40 WF's / CU, but only can
-  // sustain 32 see
-  // https://github.com/ROCm/clr/blob/4d0b815d06751735e6a50fa46e913fdf85f751f0/hipamd/src/hip_platform.cpp#L362-L366
+  // On AMD GPUs this wavefront-per-CU limit is typically 32 for gfx9-class
+  // parts even when the architectural maximum is higher.
   const int maxWavesPerCU =
       Impl::MacaInternal::m_deviceProp.major <= 9 ? 32 : 64;
   Impl::MacaInternal::m_maxThreadsPerSM =
@@ -116,8 +115,8 @@ Kokkos::Maca::initialize WARNING: Could not determine that xnack is enabled.
   desul::Impl::init_lock_arrays();  // FIXME
 
   // Create the default instance.
-  hipStream_t stream;
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipStreamCreate(&stream));
+  macaStream_t stream;
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaStreamCreate(&stream));
   Impl::MacaInternal::default_instance = Impl::HostSharedPtr(
       new Impl::MacaInternal(stream), customDeleterManagesStream);
 }
@@ -129,7 +128,7 @@ void Maca::impl_finalize() {
 
   // TODO C++20 Use std::views::values.
   for (const auto [_, ptr] : Impl::MacaInternal::constantMemHostStaging) {
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipHostFree(ptr));
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaHostFree(ptr));
   }
 
   // TODO C++20 Use std::views::values.
@@ -148,7 +147,7 @@ Maca::Maca()
           (Impl::check_execution_space_constructor_precondition(name()),
            Impl::MacaInternal::default_instance)) {}
 
-Maca::Maca(hipStream_t const stream, Impl::ManageStream manage_stream)
+Maca::Maca(macaStream_t const stream, Impl::ManageStream manage_stream)
     : m_space_instance(
           (Impl::check_execution_space_constructor_precondition(name()),
            static_cast<bool>(manage_stream)
@@ -188,8 +187,8 @@ void Maca::impl_static_fence(const std::string& name) {
           GlobalDeviceSynchronization,
       [&]() {
         for (const auto maca_device : Impl::MacaInternal::maca_devices) {
-          KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(maca_device));
-          KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceSynchronize());
+          KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(maca_device));
+          KOKKOS_IMPL_MACA_SAFE_CALL(macaDeviceSynchronize());
         }
       });
 }
@@ -198,11 +197,13 @@ void Maca::fence(const std::string& name) const {
   m_space_instance->fence(name);
 }
 
-hipStream_t Maca::maca_stream() const { return m_space_instance->m_stream; }
+macaStream_t Maca::maca_stream() const { return m_space_instance->m_stream; }
 
-int Maca::maca_device() const { return impl_internal_space_instance()->m_hipDev; }
+int Maca::maca_device() const {
+  return impl_internal_space_instance()->m_macaDev;
+}
 
-hipDeviceProp_t const& Maca::maca_device_prop() {
+macaDeviceProp_t const& Maca::maca_device_prop() {
   return Impl::MacaInternal::default_instance->m_deviceProp;
 }
 

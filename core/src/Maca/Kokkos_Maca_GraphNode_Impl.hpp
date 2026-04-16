@@ -14,7 +14,7 @@ namespace Kokkos {
 namespace Impl {
 template <>
 struct GraphNodeBackendSpecificDetails<Kokkos::Maca> {
-  hipGraphNode_t node = nullptr;
+  macaGraphNode_t node = nullptr;
 
   explicit GraphNodeBackendSpecificDetails() = default;
 

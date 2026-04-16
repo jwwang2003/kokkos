@@ -39,6 +39,8 @@ class ParallelFor<FunctorType, Kokkos::MDRangePolicy<Traits...>, Maca> {
  public:
   ParallelFor() = delete;
 
+  Policy const& get_policy() const { return m_policy; }
+
   inline __device__ void operator()() const {
     Kokkos::Impl::DeviceIterate<Policy::rank, array_index_type, index_type,
                                 FunctorType, Policy::inner_direction,
@@ -54,7 +56,7 @@ class ParallelFor<FunctorType, Kokkos::MDRangePolicy<Traits...>, Maca> {
     const auto [grid, block] =
         Kokkos::Impl::compute_device_launch_params(m_policy, m_max_grid_size);
 
-    hip_parallel_launch<ClosureType, LaunchBounds>(
+    maca_parallel_launch<ClosureType, LaunchBounds>(
         *this, grid, block, 0, m_policy.space().impl_internal_space_instance(),
         false);
   }  // end execute

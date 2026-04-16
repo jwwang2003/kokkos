@@ -12,52 +12,34 @@
 namespace Kokkos {
 namespace Impl {
 
-void maca_internal_error_throw(hipError_t e, const char* name,
+void maca_internal_error_throw(macaError_t e, const char* name,
                               const char* file = nullptr, const int line = 0);
 
-void maca_internal_error_abort(hipError_t e, const char* name,
+void maca_internal_error_abort(macaError_t e, const char* name,
                               const char* file = nullptr, const int line = 0);
 
-inline void maca_internal_safe_call(hipError_t e, const char* name,
+[[nodiscard]] inline bool maca_internal_error_is_fatal(macaError_t e) {
+  switch (e) {
+    case macaErrorIllegalAddress:
+    case macaErrorAssert:
+    case macaErrorLaunchFailure:
+    case static_cast<macaError_t>(mcErrorHardwareStackError):
+    case static_cast<macaError_t>(mcErrorIllegalInstruction):
+    case static_cast<macaError_t>(mcErrorMisalignedAddress):
+    case static_cast<macaError_t>(mcErrorInvalidAddressSpace):
+    case static_cast<macaError_t>(mcErrorInvalidPc): return true;
+    default: return false;
+  }
+}
+
+inline void maca_internal_safe_call(macaError_t e, const char* name,
                                    const char* file = nullptr,
                                    const int line   = 0) {
-  // 1. Success -> normal continuation.
-  // 2. Error codes for which, to continue using Maca, the process must be
-  //    terminated and relaunched -> call abort on the host-side.
-  // 3. Any other error code -> throw a runtime error.
-  switch (e) {
-    case hipSuccess: break;
-    case hipErrorInvalidValue:
-    case hipErrorOutOfMemory:
-    case hipErrorInitializationError:
-    case hipErrorDeinitialized:
-    case hipErrorInvalidConfiguration:
-    case hipErrorInvalidSymbol:
-    case hipErrorInvalidDevicePointer:
-    case hipErrorInvalidMemcpyDirection:
-    case hipErrorInsufficientDriver:
-    case hipErrorMissingConfiguration:
-    case hipErrorPriorLaunchFailure:
-    case hipErrorInvalidDeviceFunction:
-    case hipErrorNoDevice:
-    case hipErrorInvalidDevice:
-    case hipErrorInvalidContext:
-    case hipErrorNoBinaryForGpu:
-    case hipErrorInvalidSource:
-    case hipErrorIllegalState:
-    case hipErrorNotFound:
-    case hipErrorIllegalAddress:
-    case hipErrorLaunchOutOfResources:
-    case hipErrorLaunchTimeOut:
-    case hipErrorAssert:
-    case hipErrorLaunchFailure:
-    case hipErrorNotSupported:
-    case hipErrorStreamCaptureUnsupported:
-    case hipErrorCapturedEvent:
-    case hipErrorGraphExecUpdateFailure:
-    case hipErrorUnknown: maca_internal_error_abort(e, name, file, line); break;
-    default: maca_internal_error_throw(e, name, file, line);
-  }
+  if (e == macaSuccess) return;
+  if (maca_internal_error_is_fatal(e))
+    maca_internal_error_abort(e, name, file, line);
+  else
+    maca_internal_error_throw(e, name, file, line);
 }
 
 }  // namespace Impl

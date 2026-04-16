@@ -23,7 +23,7 @@ class GraphImpl<Kokkos::Maca> {
   using root_node_impl_t =
       GraphNodeImpl<Kokkos::Maca, Kokkos::Experimental::TypeErasedTag,
                     Kokkos::Experimental::TypeErasedTag>;
-  using aggregate_impl_t = HIPGraphNodeAggregate;
+  using aggregate_impl_t = MacaGraphNodeAggregate;
   using aggregate_node_impl_t =
       GraphNodeImpl<Kokkos::Maca, aggregate_impl_t,
                     Kokkos::Experimental::TypeErasedTag>;
@@ -42,7 +42,7 @@ class GraphImpl<Kokkos::Maca> {
 
   explicit GraphImpl(const device_handle_t& device_handle);
 
-  GraphImpl(const device_handle_t& device_handle, hipGraph_t graph);
+  GraphImpl(const device_handle_t& device_handle, macaGraph_t graph);
 
   void add_node(std::shared_ptr<aggregate_node_impl_t> const& arg_node_ptr);
 
@@ -77,18 +77,18 @@ class GraphImpl<Kokkos::Maca> {
     KOKKOS_EXPECTS(!m_graph_exec);
     KOKKOS_IMPL_MACA_SAFE_CALL(
         m_device_handle.m_exec.impl_internal_space_instance()
-            ->hip_graph_instantiate_wrapper(&m_graph_exec, m_graph, nullptr,
-                                            nullptr, 0));
+            ->maca_graph_instantiate_wrapper(&m_graph_exec, m_graph, nullptr,
+                                             nullptr, 0));
     KOKKOS_ENSURES(m_graph_exec);
   }
 
-  hipGraph_t hip_graph() { return m_graph; }
-  hipGraphExec_t hip_graph_exec() { return m_graph_exec; }
+  macaGraph_t maca_graph() { return m_graph; }
+  macaGraphExec_t maca_graph_exec() { return m_graph_exec; }
 
  private:
   device_handle_t m_device_handle;
-  hipGraph_t m_graph          = nullptr;
-  hipGraphExec_t m_graph_exec = nullptr;
+  macaGraph_t m_graph          = nullptr;
+  macaGraphExec_t m_graph_exec = nullptr;
 
   bool m_graph_owning = false;
 
@@ -102,12 +102,12 @@ inline GraphImpl<Kokkos::Maca>::~GraphImpl() {
   if (m_graph_exec) {
     KOKKOS_IMPL_MACA_SAFE_CALL(
         m_device_handle.m_exec.impl_internal_space_instance()
-            ->hip_graph_exec_destroy_wrapper(m_graph_exec));
+            ->maca_graph_exec_destroy_wrapper(m_graph_exec));
   }
   if (m_graph_owning) {
     KOKKOS_IMPL_MACA_SAFE_CALL(
         m_device_handle.m_exec.impl_internal_space_instance()
-            ->hip_graph_destroy_wrapper(m_graph));
+            ->maca_graph_destroy_wrapper(m_graph));
   }
 }
 
@@ -115,11 +115,11 @@ inline GraphImpl<Kokkos::Maca>::GraphImpl(const device_handle_t& device_handle)
     : m_device_handle(device_handle), m_graph_owning(true) {
   KOKKOS_IMPL_MACA_SAFE_CALL(
       m_device_handle.m_exec.impl_internal_space_instance()
-          ->hip_graph_create_wrapper(&m_graph, 0));
+          ->maca_graph_create_wrapper(&m_graph, 0));
 }
 
 inline GraphImpl<Kokkos::Maca>::GraphImpl(const device_handle_t& device_handle,
-                                         hipGraph_t graph)
+                                         macaGraph_t graph)
     : m_device_handle(device_handle), m_graph(graph), m_graph_owning(false) {
   KOKKOS_EXPECTS(graph != nullptr);
 }
@@ -147,8 +147,8 @@ GraphImpl<Kokkos::Maca>::add_node(std::shared_ptr<NodeImpl> arg_node_ptr) {
   auto& kernel = arg_node_ptr->get_kernel();
   auto& node   = static_cast<node_details_t*>(arg_node_ptr.get())->node;
   KOKKOS_EXPECTS(!node);
-  kernel.set_hip_graph_ptr(&m_graph);
-  kernel.set_hip_graph_node_ptr(&node);
+  kernel.set_maca_graph_ptr(&m_graph);
+  kernel.set_maca_graph_node_ptr(&node);
   kernel.execute();
   KOKKOS_ENSURES(node);
   m_nodes.push_back(std::move(arg_node_ptr));
@@ -201,7 +201,8 @@ inline void GraphImpl<Kokkos::Maca>::add_predecessor(
 
   KOKKOS_IMPL_MACA_SAFE_CALL(
       m_device_handle.m_exec.impl_internal_space_instance()
-          ->hip_graph_add_dependencies_wrapper(m_graph, &pred_node, &node, 1));
+          ->maca_graph_add_dependencies_wrapper(m_graph, &pred_node, &node,
+                                                1));
 }
 
 inline void GraphImpl<Kokkos::Maca>::submit(const Kokkos::Maca& exec) {
@@ -209,7 +210,7 @@ inline void GraphImpl<Kokkos::Maca>::submit(const Kokkos::Maca& exec) {
     instantiate();
   }
   KOKKOS_IMPL_MACA_SAFE_CALL(
-      exec.impl_internal_space_instance()->hip_graph_launch_wrapper(
+      exec.impl_internal_space_instance()->maca_graph_launch_wrapper(
           m_graph_exec));
 }
 

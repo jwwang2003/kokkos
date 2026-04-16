@@ -20,15 +20,34 @@ enum class BlockType { Max, Preferred };
 
 template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
           MacaLaunchMechanism LaunchMechanism =
-              DeduceHIPLaunchMechanism<DriverType>::launch_mechanism>
+              DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
+unsigned maca_get_occupancy_blocksize(const int maca_device);
+
+template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
+          MacaLaunchMechanism LaunchMechanism =
+              DeduceMacaLaunchMechanism<DriverType>::launch_mechanism,
+          typename DynamicShmemFunctor>
+unsigned maca_deduce_blocksize_with_occupancy(
+    MacaInternal const *maca_instance, DynamicShmemFunctor const &dynamic_shmem,
+    const bool early_termination);
+
+template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
+          MacaLaunchMechanism LaunchMechanism =
+              DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
 unsigned get_preferred_blocksize_impl(const int maca_device) {
-  if constexpr (!HIPParallelLaunch<DriverType, LaunchBounds,
-                                   LaunchMechanism>::default_launchbounds()) {
+  if constexpr (!MacaParallelLaunch<DriverType, LaunchBounds,
+                                    LaunchMechanism>::default_launchbounds()) {
     // use the user specified value
     return LaunchBounds::maxTperB;
   } else {
-    if (HIPParallelLaunch<DriverType, LaunchBounds,
-                          LaunchMechanism>::get_scratch_size(maca_device) > 0) {
+    if (const unsigned occupancy_blocksize =
+            maca_get_occupancy_blocksize<DriverType, LaunchBounds,
+                                         LaunchMechanism>(maca_device);
+        occupancy_blocksize != 0) {
+      return occupancy_blocksize;
+    }
+    if (MacaParallelLaunch<DriverType, LaunchBounds,
+                           LaunchMechanism>::get_scratch_size(maca_device) > 0) {
       return MacaTraits::ConservativeThreadsPerBlock;
     }
     return MacaTraits::MaxThreadsPerBlock;
@@ -37,10 +56,10 @@ unsigned get_preferred_blocksize_impl(const int maca_device) {
 
 template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
           MacaLaunchMechanism LaunchMechanism =
-              DeduceHIPLaunchMechanism<DriverType>::launch_mechanism>
+              DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
 constexpr unsigned get_max_blocksize_impl() {
-  if constexpr (!HIPParallelLaunch<DriverType, LaunchBounds,
-                                   LaunchMechanism>::default_launchbounds()) {
+  if constexpr (!MacaParallelLaunch<DriverType, LaunchBounds,
+                                    LaunchMechanism>::default_launchbounds()) {
     // use the user specified value
     return LaunchBounds::maxTperB;
   } else {
@@ -55,53 +74,132 @@ constexpr unsigned get_max_blocksize_impl() {
 template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
           BlockType BlockSize = BlockType::Max,
           MacaLaunchMechanism LaunchMechanism =
-              DeduceHIPLaunchMechanism<DriverType>::launch_mechanism>
-hipFuncAttributes get_hip_func_attributes_impl(const int maca_device) {
+              DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
+macaFuncAttributes get_maca_func_attributes_impl(const int maca_device) {
 #ifndef KOKKOS_ENABLE_MACA_MULTIPLE_KERNEL_INSTANTIATIONS
-  return HIPParallelLaunch<DriverType, LaunchBounds, LaunchMechanism>::
-      get_hip_func_attributes(maca_device);
+  return MacaParallelLaunch<DriverType, LaunchBounds, LaunchMechanism>::
+      get_maca_func_attributes(maca_device);
 #else
-  if constexpr (!HIPParallelLaunch<DriverType, LaunchBounds,
-                                   LaunchMechanism>::default_launchbounds()) {
+  if constexpr (!MacaParallelLaunch<DriverType, LaunchBounds,
+                                    LaunchMechanism>::default_launchbounds()) {
     // for user defined, we *always* honor the request
-    return HIPParallelLaunch<DriverType, LaunchBounds, LaunchMechanism>::
-        get_hip_func_attributes(maca_device);
+    return MacaParallelLaunch<DriverType, LaunchBounds, LaunchMechanism>::
+        get_maca_func_attributes(maca_device);
   } else {
     if constexpr (BlockSize == BlockType::Max) {
-      return HIPParallelLaunch<
+      return MacaParallelLaunch<
           DriverType, Kokkos::LaunchBounds<MacaTraits::MaxThreadsPerBlock, 1>,
-          LaunchMechanism>::get_hip_func_attributes(maca_device);
+          LaunchMechanism>::get_maca_func_attributes(maca_device);
     } else {
       const int blocksize =
           get_preferred_blocksize_impl<DriverType, LaunchBounds,
                                        LaunchMechanism>(maca_device);
       if (blocksize == MacaTraits::MaxThreadsPerBlock) {
-        return HIPParallelLaunch<
+        return MacaParallelLaunch<
             DriverType, Kokkos::LaunchBounds<MacaTraits::MaxThreadsPerBlock, 1>,
-            LaunchMechanism>::get_hip_func_attributes(maca_device);
+            LaunchMechanism>::get_maca_func_attributes(maca_device);
       } else {
-        return HIPParallelLaunch<
+        return MacaParallelLaunch<
             DriverType,
             Kokkos::LaunchBounds<MacaTraits::ConservativeThreadsPerBlock, 1>,
-            LaunchMechanism>::get_hip_func_attributes(maca_device);
+            LaunchMechanism>::get_maca_func_attributes(maca_device);
       }
     }
   }
 #endif
 }
 
+template <typename DriverType, typename LaunchBounds,
+          MacaLaunchMechanism LaunchMechanism>
+unsigned maca_get_occupancy_blocksize(const int maca_device) {
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(maca_device));
+
+  int min_grid_size = 0;
+  int block_size    = 0;
+  auto const err    = macaOccupancyMaxPotentialBlockSize(
+      &min_grid_size, &block_size,
+      reinterpret_cast<void const *>(
+          MacaParallelLaunch<DriverType, LaunchBounds,
+                             LaunchMechanism>::get_kernel_func()),
+      0, 0);
+
+  if (err != macaSuccess || block_size <= 0) return 0;
+
+  if constexpr (!MacaParallelLaunch<DriverType, LaunchBounds,
+                                    LaunchMechanism>::default_launchbounds()) {
+    block_size = std::min(block_size, int(LaunchBounds::maxTperB));
+  }
+
+  const int warp_size = std::max(1, int(MacaTraits::WarpSize));
+  block_size          = (block_size / warp_size) * warp_size;
+  return block_size >= warp_size ? unsigned(block_size) : 0;
+}
+
+template <typename DriverType, typename LaunchBounds,
+          MacaLaunchMechanism LaunchMechanism,
+          typename DynamicShmemFunctor>
+unsigned maca_deduce_blocksize_with_occupancy(
+    MacaInternal const *maca_instance, DynamicShmemFunctor const &dynamic_shmem,
+    const bool early_termination) {
+  auto const attr = get_maca_func_attributes_impl<DriverType, LaunchBounds,
+                                                  BlockType::Preferred,
+                                                  LaunchMechanism>(
+      maca_instance->m_macaDev);
+  auto const &prop = maca_instance->m_deviceProp;
+  const int warp_size =
+      std::max(1, int(prop.warpSize > 0 ? prop.warpSize : MacaTraits::WarpSize));
+  int max_threads_per_block =
+      std::min(attr.maxThreadsPerBlock,
+               LaunchBounds::maxTperB == 0 ? int(prop.maxThreadsPerBlock)
+                                           : int(LaunchBounds::maxTperB));
+  max_threads_per_block = (max_threads_per_block / warp_size) * warp_size;
+  if (max_threads_per_block < warp_size) return 0;
+
+  const int min_blocks_per_sm =
+      LaunchBounds::minBperSM == 0 ? 1 : int(LaunchBounds::minBperSM);
+  int best_block_size     = 0;
+  int best_threads_per_sm = 0;
+
+  for (int block_size = max_threads_per_block; block_size >= warp_size;
+       block_size -= warp_size) {
+    int blocks_per_sm = 0;
+    auto const err    = macaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &blocks_per_sm,
+        reinterpret_cast<void const *>(
+            MacaParallelLaunch<DriverType, LaunchBounds,
+                               LaunchMechanism>::get_kernel_func()),
+        block_size, dynamic_shmem(block_size));
+
+    if (err != macaSuccess) return 0;
+
+    const int threads_per_sm = blocks_per_sm * block_size;
+    if (blocks_per_sm >= min_blocks_per_sm) {
+      if ((threads_per_sm > best_threads_per_sm) ||
+          ((block_size >= MacaTraits::ConservativeThreadsPerBlock) &&
+           (threads_per_sm == best_threads_per_sm))) {
+        best_block_size     = block_size;
+        best_threads_per_sm = threads_per_sm;
+      }
+    }
+
+    if (early_termination && best_block_size != 0) break;
+  }
+
+  return unsigned(best_block_size);
+}
+
 // Given an initial block-size limitation based on register usage
 // determine the block size to select based on LDS limitation
 template <BlockType BlockSize, class DriverType, class LaunchBounds,
           typename ShmemFunctor>
-unsigned maca_internal_get_block_size(const MacaInternal *hip_instance,
+unsigned maca_internal_get_block_size(const MacaInternal *maca_instance,
                                      const ShmemFunctor &f,
                                      const unsigned tperb_reg) {
   // translate LB from CUDA to Maca
   const unsigned min_waves_per_eu =
       LaunchBounds::minBperSM ? LaunchBounds::minBperSM : 1;
   const unsigned shmem_per_sm =
-      hip_instance->m_deviceProp.maxSharedMemoryPerMultiProcessor;
+      maca_instance->m_deviceProp.maxSharedMemoryPerMultiProcessor;
   unsigned block_size     = tperb_reg;
   unsigned min_block_size = 0;
   do {
@@ -150,8 +248,8 @@ unsigned maca_get_preferred_blocksize(const int maca_device) {
 // Heuristic to compute the block size for non-team parallelism
 template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
           MacaLaunchMechanism LaunchMechanism =
-              DeduceHIPLaunchMechanism<DriverType>::launch_mechanism>
-unsigned get_preferred_blocksize_for_range(MacaInternal const *hip_instance,
+              DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
+unsigned get_preferred_blocksize_for_range(MacaInternal const *maca_instance,
                                            size_t requested_parallelism) {
   /* General approach, if the user did not make a launch bounds request
   - If the requested parallelism is less than the available concurrency, get the
@@ -161,11 +259,11 @@ unsigned get_preferred_blocksize_for_range(MacaInternal const *hip_instance,
     - no more than 1024
   */
 
-  if constexpr (HIPParallelLaunch<DriverType, LaunchBounds,
-                                  LaunchMechanism>::default_launchbounds()) {
+  if constexpr (MacaParallelLaunch<DriverType, LaunchBounds,
+                                   LaunchMechanism>::default_launchbounds()) {
     if (requested_parallelism &&
-        requested_parallelism < size_t(hip_instance->concurrency())) {
-      const unsigned eus = hip_instance->m_deviceProp.multiProcessorCount;
+        requested_parallelism < size_t(maca_instance->concurrency())) {
+      const unsigned eus = maca_instance->m_deviceProp.multiProcessorCount;
       const unsigned requestedPerEU = (requested_parallelism + eus - 1) / eus;
       // round up to power of 2
       unsigned threadsPerEU = Kokkos::bit_ceil(requestedPerEU);
@@ -176,7 +274,7 @@ unsigned get_preferred_blocksize_for_range(MacaInternal const *hip_instance,
       return threadsPerEU;
     }
   }
-  const int maca_device = hip_instance->m_hipDev;
+  const int maca_device = maca_instance->m_macaDev;
   return get_preferred_blocksize_impl<DriverType, LaunchBounds>(maca_device);
 }
 
@@ -203,38 +301,55 @@ unsigned maca_get_max_blocksize() {
 // Note: a returned block_size of zero indicates that the algorithm could not
 //       find a valid block size.  The caller is responsible for error handling.
 template <typename DriverType, typename LaunchBounds, typename ShmemFunctor>
-unsigned maca_get_preferred_blocksize(MacaInternal const *hip_instance,
+unsigned maca_get_preferred_blocksize(MacaInternal const *maca_instance,
                                      ShmemFunctor const &f) {
+  if (const unsigned occupancy_blocksize =
+          maca_deduce_blocksize_with_occupancy<DriverType, LaunchBounds>(
+              maca_instance, f, false);
+      occupancy_blocksize != 0) {
+    return occupancy_blocksize;
+  }
   // get preferred blocksize limited by register usage
   const unsigned tperb_reg =
       maca_get_preferred_blocksize<DriverType, LaunchBounds>(
-          hip_instance->m_hipDev);
+          maca_instance->m_macaDev);
   return maca_internal_get_block_size<BlockType::Preferred, DriverType,
-                                     LaunchBounds>(hip_instance, f, tperb_reg);
+                                      LaunchBounds>(maca_instance, f,
+                                                    tperb_reg);
 }
 
 // Standardized blocksize deduction for teams-based parallel constructs with LDS
 // usage Returns the 'preferred' blocksize, as determined by the heuristics in
 // maca_internal_get_block_size
 //
-// The ShmemTeamsFunctor takes two arguments: the hipFunctionAttributes and
+// The ShmemTeamsFunctor takes two arguments: the function attributes and
 //  the current blocksize under consideration, and returns the LDS usage
 //
 // Note: a returned block_size of zero indicates that the algorithm could not
 //       find a valid block size.  The caller is responsible for error handling.
 template <typename DriverType, typename LaunchBounds,
           typename ShmemTeamsFunctor>
-unsigned maca_get_preferred_team_blocksize(MacaInternal const *hip_instance,
+unsigned maca_get_preferred_team_blocksize(MacaInternal const *maca_instance,
                                           ShmemTeamsFunctor const &f) {
-  hipFuncAttributes attr = get_hip_func_attributes_impl<
-      DriverType, LaunchBounds, BlockType::Preferred>(hip_instance->m_hipDev);
+  macaFuncAttributes attr = get_maca_func_attributes_impl<
+      DriverType, LaunchBounds, BlockType::Preferred>(maca_instance->m_macaDev);
+  if (const unsigned occupancy_blocksize =
+          maca_deduce_blocksize_with_occupancy<DriverType, LaunchBounds>(
+              maca_instance,
+              [&f, &attr](int block_size) {
+                return f(attr, unsigned(block_size));
+              },
+              false);
+      occupancy_blocksize != 0) {
+    return occupancy_blocksize;
+  }
   // get preferred blocksize limited by register usage
   const unsigned tperb_reg =
       maca_get_preferred_blocksize<DriverType, LaunchBounds>(
-          hip_instance->m_hipDev);
+          maca_instance->m_macaDev);
   return maca_internal_get_block_size<BlockType::Preferred, DriverType,
-                                     LaunchBounds>(
-      hip_instance, std::bind(f, attr, std::placeholders::_1), tperb_reg);
+                                      LaunchBounds>(
+      maca_instance, std::bind(f, attr, std::placeholders::_1), tperb_reg);
 }
 
 // Standardized blocksize deduction for non-teams parallel constructs with LDS
@@ -247,34 +362,50 @@ unsigned maca_get_preferred_team_blocksize(MacaInternal const *hip_instance,
 // Note: a returned block_size of zero indicates that the algorithm could not
 //       find a valid block size.  The caller is responsible for error handling.
 template <typename DriverType, typename LaunchBounds, typename ShmemFunctor>
-unsigned maca_get_max_blocksize(MacaInternal const *hip_instance,
+unsigned maca_get_max_blocksize(MacaInternal const *maca_instance,
                                ShmemFunctor const &f) {
+  if (const unsigned occupancy_blocksize =
+          maca_deduce_blocksize_with_occupancy<DriverType, LaunchBounds>(
+              maca_instance, f, true);
+      occupancy_blocksize != 0) {
+    return occupancy_blocksize;
+  }
   // get max blocksize limited by register usage
   const unsigned tperb_reg = maca_get_max_blocksize<DriverType, LaunchBounds>();
   return maca_internal_get_block_size<BlockType::Max, DriverType, LaunchBounds>(
-      hip_instance, f, tperb_reg);
+      maca_instance, f, tperb_reg);
 }
 
 // Standardized blocksize deduction for teams-based parallel constructs with LDS
 // usage Returns the maximum possible blocksize, as determined by the heuristics
 // in maca_internal_get_block_size
 //
-// The ShmemTeamsFunctor takes two arguments: the hipFunctionAttributes and
+// The ShmemTeamsFunctor takes two arguments: the function attributes and
 //  the current blocksize under consideration, and returns the LDS usage
 //
 // Note: a returned block_size of zero indicates that the algorithm could not
 //       find a valid block size.  The caller is responsible for error handling.
 template <typename DriverType, typename LaunchBounds,
           typename ShmemTeamsFunctor>
-unsigned maca_get_max_team_blocksize(MacaInternal const *hip_instance,
+unsigned maca_get_max_team_blocksize(MacaInternal const *maca_instance,
                                     ShmemTeamsFunctor const &f) {
-  hipFuncAttributes attr =
-      get_hip_func_attributes_impl<DriverType, LaunchBounds, BlockType::Max>(
-          hip_instance->m_hipDev);
+  macaFuncAttributes attr =
+      get_maca_func_attributes_impl<DriverType, LaunchBounds, BlockType::Max>(
+          maca_instance->m_macaDev);
+  if (const unsigned occupancy_blocksize =
+          maca_deduce_blocksize_with_occupancy<DriverType, LaunchBounds>(
+              maca_instance,
+              [&f, &attr](int block_size) {
+                return f(attr, unsigned(block_size));
+              },
+              true);
+      occupancy_blocksize != 0) {
+    return occupancy_blocksize;
+  }
   // get max blocksize
   const unsigned tperb_reg = maca_get_max_blocksize<DriverType, LaunchBounds>();
   return maca_internal_get_block_size<BlockType::Max, DriverType, LaunchBounds>(
-      hip_instance, std::bind(f, attr, std::placeholders::_1), tperb_reg);
+      maca_instance, std::bind(f, attr, std::placeholders::_1), tperb_reg);
 }
 
 }  // namespace Impl

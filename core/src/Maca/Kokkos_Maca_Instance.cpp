@@ -32,7 +32,7 @@ import kokkos.core;
 #include <vector>
 
 #ifdef KOKKOS_ENABLE_MACA_RELOCATABLE_DEVICE_CODE
-__device__ __constant__ unsigned long kokkos_impl_hip_constant_memory_buffer
+__device__ __constant__ unsigned long kokkos_impl_maca_constant_memory_buffer
     [Kokkos::Impl::MacaTraits::ConstantMemoryUsage / sizeof(unsigned long)];
 #endif
 
@@ -76,9 +76,9 @@ int MacaInternal::concurrency() {
 
 void MacaInternal::print_configuration(std::ostream &s) const {
   s << "macro  KOKKOS_ENABLE_MACA : defined" << '\n';
-#if defined(HIP_VERSION)
-  s << "macro  HIP_VERSION : " << HIP_VERSION << " = version "
-    << HIP_VERSION_MAJOR << '.' << HIP_VERSION_MINOR << '.' << HIP_VERSION_PATCH
+#if defined(MACA_VERSION)
+  s << "macro  MACA_VERSION : " << MACA_VERSION << " = version "
+    << MACA_VERSION_MAJOR << '.' << MACA_VERSION_MINOR << '.' << MACA_VERSION_PATCH
     << '\n';
 #endif
 
@@ -97,24 +97,24 @@ void MacaInternal::print_configuration(std::ostream &s) const {
 #endif
 
   for (int i : get_visible_devices()) {
-    hipDeviceProp_t hipProp;
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipGetDeviceProperties(&hipProp, i));
+    macaDeviceProp_t maca_prop;
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaGetDeviceProperties(&maca_prop, i));
     auto const support = query_maca_managed_memory_support(i);
-    std::string gpu_type = hipProp.integrated == 1 ? "APU" : "dGPU";
+    std::string gpu_type = maca_prop.integrated == 1 ? "APU" : "dGPU";
 
     s << "Kokkos::Maca[ " << i << " ] "
-      << "mxArch " << hipProp.mxArchName;
-    if (m_hipDev == i)
+      << "mxArch " << maca_prop.mxArchName;
+    if (m_macaDev == i)
       s << " : Selected";
     else
       s << " : Not Selected";
     s << '\n'
       << "  Total Global Memory: "
-      << ::Kokkos::Impl::human_memory_size(hipProp.totalGlobalMem) << '\n'
+      << ::Kokkos::Impl::human_memory_size(maca_prop.totalGlobalMem) << '\n'
       << "  Shared Memory per Block: "
-      << ::Kokkos::Impl::human_memory_size(hipProp.sharedMemPerBlock) << '\n'
+      << ::Kokkos::Impl::human_memory_size(maca_prop.sharedMemPerBlock) << '\n'
       << "  APU or dGPU: " << gpu_type << '\n'
-      << "  Is Large Bar: " << hipProp.isLargeBar << '\n'
+      << "  Is Large Bar: " << maca_prop.isLargeBar << '\n'
       << "  Supports Managed Memory: "
       << support.has_managed_memory_attribute << '\n'
       << "  Pageable Memory Access: "
@@ -128,19 +128,19 @@ void MacaInternal::print_configuration(std::ostream &s) const {
       << "  System allows accessing system allocated memory on GPU: "
       << support.fully_supported()
       << '\n'
-      << "  Wavefront Size: " << hipProp.warpSize << '\n';
+      << "  Wavefront Size: " << maca_prop.warpSize << '\n';
   }
 }
 
 //----------------------------------------------------------------------------
 
 int MacaInternal::verify_is_initialized(const char *const label) const {
-  if (m_hipDev < 0) {
+  if (m_macaDev < 0) {
     Kokkos::abort((std::string("Kokkos::Maca::") + label +
                    " : ERROR device not initialized\n")
                       .c_str());
   }
-  return 0 <= m_hipDev;
+  return 0 <= m_macaDev;
 }
 
 uint32_t MacaInternal::impl_get_instance_id() const noexcept {
@@ -155,26 +155,26 @@ void MacaInternal::fence(const std::string &name) const {
       name,
       Kokkos::Tools::Experimental::Impl::DirectFenceIDHandle{
           impl_get_instance_id()},
-      [&]() { KOKKOS_IMPL_MACA_SAFE_CALL(hipStreamSynchronize(m_stream)); });
+      [&]() { KOKKOS_IMPL_MACA_SAFE_CALL(macaStreamSynchronize(m_stream)); });
 }
 
-MacaInternal::MacaInternal(hipStream_t stream) : m_stream(stream) {
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipStreamGetDevice(m_stream, &m_hipDev));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_hipDev));
-  maca_devices.insert(m_hipDev);
+MacaInternal::MacaInternal(macaStream_t stream) : m_stream(stream) {
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaStreamGetDevice(m_stream, &m_macaDev));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_macaDev));
+  maca_devices.insert(m_macaDev);
 
   // Allocate a staging buffer for constant mem in pinned host memory.
-  if (!constantMemHostStaging[m_hipDev]) {
+  if (!constantMemHostStaging[m_macaDev]) {
     void *constant_mem_void_ptr = nullptr;
     KOKKOS_IMPL_MACA_SAFE_CALL(maca_host_malloc_wrapper(
         &constant_mem_void_ptr, Impl::MacaTraits::ConstantMemoryUsage));
-    constantMemHostStaging[m_hipDev] =
+    constantMemHostStaging[m_macaDev] =
         static_cast<unsigned long *>(constant_mem_void_ptr);
   }
 
   // Initialize the shared resource locking to avoid overwriting the driver of
   // the previous kernel launch.
-  constantMemReusable[m_hipDev].initialize();
+  constantMemReusable[m_macaDev].initialize();
 
   //----------------------------------
   // Multiblock reduction uses scratch flags for counters
@@ -200,9 +200,9 @@ MacaInternal::MacaInternal(hipStream_t stream) : m_stream(stream) {
 
   m_num_scratch_locks = concurrency();
   KOKKOS_IMPL_MACA_SAFE_CALL(
-      hipMalloc(&m_scratch_locks, sizeof(int32_t) * m_num_scratch_locks));
+      macaMalloc(&m_scratch_locks, sizeof(int32_t) * m_num_scratch_locks));
   KOKKOS_IMPL_MACA_SAFE_CALL(
-      hipMemset(m_scratch_locks, 0, sizeof(int32_t) * m_num_scratch_locks));
+      macaMemset(m_scratch_locks, 0, sizeof(int32_t) * m_num_scratch_locks));
 }
 
 //----------------------------------------------------------------------------
@@ -210,7 +210,7 @@ MacaInternal::MacaInternal(hipStream_t stream) : m_stream(stream) {
 Kokkos::Maca::size_type *MacaInternal::scratch_space(const std::size_t size) {
   if (verify_is_initialized("scratch_space") &&
       m_scratchSpaceCount < scratch_count(size)) {
-    auto mem_space = Kokkos::MacaSpace::impl_create(m_hipDev, m_stream);
+    auto mem_space = Kokkos::MacaSpace::impl_create(m_macaDev, m_stream);
 
     if (m_scratchSpace) {
       mem_space.deallocate(m_scratchSpace,
@@ -231,7 +231,7 @@ Kokkos::Maca::size_type *MacaInternal::scratch_space(const std::size_t size) {
 Kokkos::Maca::size_type *MacaInternal::scratch_flags(const std::size_t size) {
   if (verify_is_initialized("scratch_flags") &&
       m_scratchFlagsCount < scratch_count(size)) {
-    auto mem_space = Kokkos::MacaSpace::impl_create(m_hipDev, m_stream);
+    auto mem_space = Kokkos::MacaSpace::impl_create(m_macaDev, m_stream);
 
     if (m_scratchFlags) {
       mem_space.deallocate(m_scratchFlags,
@@ -249,7 +249,7 @@ Kokkos::Maca::size_type *MacaInternal::scratch_flags(const std::size_t size) {
     // It's the responsibility of the features using scratch_flags,
     // namely parallel_reduce and parallel_scan, to reset the used values to 0.
     KOKKOS_IMPL_MACA_SAFE_CALL(
-        hip_memset_wrapper(m_scratchFlags, 0, alloc_size));
+        maca_memset_wrapper(m_scratchFlags, 0, alloc_size));
   }
 
   return m_scratchFlags;
@@ -258,9 +258,10 @@ Kokkos::Maca::size_type *MacaInternal::scratch_flags(const std::size_t size) {
 Kokkos::Maca::size_type *MacaInternal::stage_functor_for_execution(
     void const *driver, std::size_t const size) const {
   if (verify_is_initialized("scratch_functor") && m_scratchFunctorSize < size) {
-    auto device_mem_space = Kokkos::MacaSpace::impl_create(m_hipDev, m_stream);
+    auto device_mem_space =
+        Kokkos::MacaSpace::impl_create(m_macaDev, m_stream);
     auto host_mem_space =
-        Kokkos::MacaHostPinnedSpace::impl_create(m_hipDev, m_stream);
+        Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
 
     if (m_scratchFunctor) {
       device_mem_space.deallocate(m_scratchFunctor, m_scratchFunctorSize);
@@ -280,10 +281,10 @@ Kokkos::Maca::size_type *MacaInternal::stage_functor_for_execution(
   // Without this fix, all the atomic tests fail. It is not obvious that this
   // problem is limited to HSA_XNACK=1 even if all the tests pass when
   // HSA_XNACK=0. That's why we always copy the driver.
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipStreamSynchronize(m_stream));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaStreamSynchronize(m_stream));
   std::memcpy(m_scratchFunctorHost, driver, size);
   KOKKOS_IMPL_MACA_SAFE_CALL(maca_memcpy_async_wrapper(
-      m_scratchFunctor, m_scratchFunctorHost, size, hipMemcpyDefault));
+      m_scratchFunctor, m_scratchFunctorHost, size, macaMemcpyDefault));
 
   return m_scratchFunctor;
 }
@@ -305,7 +306,7 @@ void *MacaInternal::resize_team_scratch_space(int scratch_pool_id,
   // Multiple ParallelFor/Reduce Teams can call this function at the same time
   // and invalidate the m_team_scratch_ptr. We use a pool to avoid any race
   // condition.
-  auto mem_space = Kokkos::MacaSpace::impl_create(m_hipDev, m_stream);
+  auto mem_space = Kokkos::MacaSpace::impl_create(m_macaDev, m_stream);
   if (m_team_scratch_current_size[scratch_pool_id] == 0) {
     m_team_scratch_current_size[scratch_pool_id] = bytes;
     m_team_scratch_ptr[scratch_pool_id] =
@@ -338,12 +339,12 @@ MacaInternal::~MacaInternal() {
   // Locking is required to avoid a race condition, i.e. it prevents another
   // thread from launching another kernel in-between the fence
   // and the 'check_if_involved_and_unlock'.
-  auto lock = MacaInternal::constantMemReusable[m_hipDev].lock();
+  auto lock = MacaInternal::constantMemReusable[m_macaDev].lock();
   this->fence("Kokkos::MacaInternal::finalize: fence on destruction");
-  MacaInternal::constantMemReusable[m_hipDev].check_if_involved_and_unlock(
+  MacaInternal::constantMemReusable[m_macaDev].check_if_involved_and_unlock(
       std::move(lock), m_stream);
 
-  auto device_mem_space = Kokkos::MacaSpace::impl_create(m_hipDev, m_stream);
+  auto device_mem_space = Kokkos::MacaSpace::impl_create(m_macaDev, m_stream);
   if (nullptr != m_scratchSpace || nullptr != m_scratchFlags) {
     device_mem_space.deallocate(m_scratchFlags,
                                 m_scratchSpaceCount * sizeScratchGrain);
@@ -353,7 +354,7 @@ MacaInternal::~MacaInternal() {
     if (m_scratchFunctorSize > 0) {
       device_mem_space.deallocate(m_scratchFunctor, m_scratchFunctorSize);
       auto host_mem_space =
-          Kokkos::MacaHostPinnedSpace::impl_create(m_hipDev, m_stream);
+          Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
       host_mem_space.deallocate(m_scratchFunctorHost, m_scratchFunctorSize);
     }
   }
@@ -369,7 +370,7 @@ MacaInternal::~MacaInternal() {
 
 int MacaInternal::m_maxThreadsPerSM = 0;
 
-hipDeviceProp_t MacaInternal::m_deviceProp;
+macaDeviceProp_t MacaInternal::m_deviceProp;
 
 std::mutex MacaInternal::scratchFunctorMutex;
 

@@ -19,7 +19,7 @@ namespace Impl {
 template <typename Functor>
 struct GraphNodeThenHostImpl<Kokkos::Maca, Functor> {
   Functor m_functor;
-  hipGraphNode_t m_node = nullptr;
+  macaGraphNode_t m_node = nullptr;
 
   explicit GraphNodeThenHostImpl(Functor functor)
       : m_functor(std::move(functor)) {}
@@ -28,33 +28,33 @@ struct GraphNodeThenHostImpl<Kokkos::Maca, Functor> {
     reinterpret_cast<Functor*>(data)->operator()();
   }
 
-  void add_to_graph(hipGraph_t graph) {
-    hipHostNodeParams params = {};
+  void add_to_graph(macaGraph_t graph) {
+    macaHostNodeParams params = {};
     params.fn                = callback;
     params.userData          = &m_functor;
 
     KOKKOS_IMPL_MACA_SAFE_CALL(
-        hipGraphAddHostNode(&m_node, graph, nullptr, 0, &params));
+        macaGraphAddHostNode(&m_node, graph, nullptr, 0, &params));
   }
 };
 
 template <typename Functor>
 struct GraphNodeCaptureImpl<Kokkos::Maca, Functor> {
   Functor m_functor;
-  hipGraphNode_t m_node = nullptr;
+  macaGraphNode_t m_node = nullptr;
 
-  void capture(const Kokkos::Maca& exec, hipGraph_t graph) {
+  void capture(const Kokkos::Maca& exec, macaGraph_t graph) {
     KOKKOS_IMPL_MACA_SAFE_CALL(
-        hipStreamBeginCapture(exec.maca_stream(), hipStreamCaptureModeGlobal));
+        macaStreamBeginCapture(exec.maca_stream(), macaStreamCaptureModeGlobal));
 
     m_functor(exec);
 
-    hipGraph_t captured_subgraph(nullptr);
+    macaGraph_t captured_subgraph(nullptr);
 
     KOKKOS_IMPL_MACA_SAFE_CALL(
-        hipStreamEndCapture(exec.maca_stream(), &captured_subgraph));
+        macaStreamEndCapture(exec.maca_stream(), &captured_subgraph));
 
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipGraphAddChildGraphNode(&m_node, graph, nullptr,
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaGraphAddChildGraphNode(&m_node, graph, nullptr,
                                                         0, captured_subgraph));
   }
 };
@@ -85,17 +85,17 @@ class GraphNodeKernelImpl<Kokkos::Maca, PolicyType, Functor, PatternTag, Args...
       : GraphNodeKernelImpl("[unlabeled]", exec_space, std::move(arg_functor),
                             (PolicyDeduced&&)arg_policy) {}
 
-  void set_hip_graph_ptr(hipGraph_t* arg_graph_ptr) {
+  void set_maca_graph_ptr(macaGraph_t* arg_graph_ptr) {
     m_graph_ptr = arg_graph_ptr;
   }
 
-  void set_hip_graph_node_ptr(hipGraphNode_t* arg_node_ptr) {
+  void set_maca_graph_node_ptr(macaGraphNode_t* arg_node_ptr) {
     m_graph_node_ptr = arg_node_ptr;
   }
 
-  hipGraphNode_t* get_hip_graph_node_ptr() const { return m_graph_node_ptr; }
+  macaGraphNode_t* get_maca_graph_node_ptr() const { return m_graph_node_ptr; }
 
-  hipGraph_t const* get_hip_graph_ptr() const { return m_graph_ptr; }
+  macaGraph_t const* get_maca_graph_ptr() const { return m_graph_ptr; }
 
   base_t* allocate_driver_memory_buffer(const Maca& exec) const {
     KOKKOS_EXPECTS(m_driver_storage == nullptr);
@@ -104,7 +104,7 @@ class GraphNodeKernelImpl<Kokkos::Maca, PolicyType, Functor, PatternTag, Args...
     m_driver_storage = std::shared_ptr<base_t>(
         static_cast<base_t*>(
             MacaSpace().allocate(exec, alloc_label.c_str(), sizeof(base_t))),
-        // FIXME_HIP Custom deletor should use same 'exec' as for allocation.
+        // FIXME_MACA Custom deleter should use same 'exec' as for allocation.
         [alloc_label](base_t* ptr) {
           MacaSpace().deallocate(alloc_label.c_str(), ptr, sizeof(base_t));
         });
@@ -115,13 +115,13 @@ class GraphNodeKernelImpl<Kokkos::Maca, PolicyType, Functor, PatternTag, Args...
   auto get_driver_storage() const { return m_driver_storage; }
 
  private:
-  hipGraph_t const* m_graph_ptr                    = nullptr;
-  hipGraphNode_t* m_graph_node_ptr                 = nullptr;
+  macaGraph_t const* m_graph_ptr                    = nullptr;
+  macaGraphNode_t* m_graph_node_ptr                 = nullptr;
   mutable std::shared_ptr<base_t> m_driver_storage = nullptr;
   std::string label;
 };
 
-struct HIPGraphNodeAggregate {};
+struct MacaGraphNodeAggregate {};
 
 template <typename KernelType,
           typename Tag =
@@ -151,24 +151,24 @@ auto* allocate_driver_storage_for_kernel(const Maca& exec,
 }
 
 template <typename KernelType>
-auto const& get_hip_graph_from_kernel(KernelType const& kernel) {
+auto const& get_maca_graph_from_kernel(KernelType const& kernel) {
   using graph_node_kernel_t =
       typename get_graph_node_kernel_type<KernelType>::type;
   auto const& kernel_as_graph_kernel =
       static_cast<graph_node_kernel_t const&>(kernel);
-  hipGraph_t const* graph_ptr = kernel_as_graph_kernel.get_hip_graph_ptr();
+  macaGraph_t const* graph_ptr = kernel_as_graph_kernel.get_maca_graph_ptr();
   KOKKOS_EXPECTS(graph_ptr != nullptr);
 
   return *graph_ptr;
 }
 
 template <typename KernelType>
-auto& get_hip_graph_node_from_kernel(KernelType const& kernel) {
+auto& get_maca_graph_node_from_kernel(KernelType const& kernel) {
   using graph_node_kernel_t =
       typename get_graph_node_kernel_type<KernelType>::type;
   auto const& kernel_as_graph_kernel =
       static_cast<graph_node_kernel_t const&>(kernel);
-  auto* graph_node_ptr = kernel_as_graph_kernel.get_hip_graph_node_ptr();
+  auto* graph_node_ptr = kernel_as_graph_kernel.get_maca_graph_node_ptr();
   KOKKOS_EXPECTS(graph_node_ptr != nullptr);
 
   return *graph_node_ptr;

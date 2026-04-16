@@ -71,6 +71,8 @@ class ParallelReduce<CombinedFunctorReducerType,
       Policy::rank, Policy, FunctorType, WorkTag, reference_type>;
 
  public:
+  Policy const& get_policy() const { return m_policy; }
+
   inline __device__ void exec_range(reference_type update) const {
     DeviceIteratePattern(m_policy, m_functor_reducer.get_functor(), update)
         .exec_range();
@@ -86,7 +88,7 @@ class ParallelReduce<CombinedFunctorReducerType,
 
     {
       reference_type value = reducer.init(reinterpret_cast<pointer_type>(
-          kokkos_impl_hip_shared_memory<word_size_type>() +
+          kokkos_impl_maca_shared_memory<word_size_type>() +
           threadIdx.y * word_count.value));
 
       // Number of blocks is bounded so that the reduction can be limited to two
@@ -100,14 +102,14 @@ class ParallelReduce<CombinedFunctorReducerType,
 
     // Reduce with final value at blockDim.y - 1 location.
     // Problem: non power-of-two blockDim
-    if (::Kokkos::Impl::hip_single_inter_block_reduce_scan<false>(
+    if (::Kokkos::Impl::maca_single_inter_block_reduce_scan<false>(
             reducer, blockIdx.x, gridDim.x,
-            kokkos_impl_hip_shared_memory<word_size_type>(), m_scratch_space,
+            kokkos_impl_maca_shared_memory<word_size_type>(), m_scratch_space,
             m_scratch_flags)) {
       // This is the final block with the final result at the final threads'
       // location
       word_size_type* const shared =
-          kokkos_impl_hip_shared_memory<word_size_type>() +
+          kokkos_impl_maca_shared_memory<word_size_type>() +
           (blockDim.y - 1) * word_count.value;
       word_size_type* const global =
           m_result_ptr_device_accessible
@@ -133,13 +135,15 @@ class ParallelReduce<CombinedFunctorReducerType,
   inline unsigned local_block_size(const FunctorType& f) {
     const auto& instance = m_policy.space().impl_internal_space_instance();
     auto shmem_functor   = [&f](unsigned n) {
-      return hip_single_inter_block_reduce_scan_shmem<false, WorkTag,
+      return maca_single_inter_block_reduce_scan_shmem<false, WorkTag,
                                                       value_type>(f, n);
     };
 
     unsigned block_size =
-        Kokkos::Impl::maca_get_preferred_blocksize<ParallelReduce, LaunchBounds>(
-            instance, shmem_functor);
+        Kokkos::Impl::maca_collective_block_size_or_zero(
+            Kokkos::Impl::maca_get_preferred_blocksize<ParallelReduce,
+                                                       LaunchBounds>(
+                instance, shmem_functor));
     if (block_size == 0) {
       Kokkos::Impl::throw_runtime_exception(
           std::string("Kokkos::Impl::ParallelReduce< Maca > could not find a "
@@ -182,11 +186,11 @@ class ParallelReduce<CombinedFunctorReducerType,
                       1, 1);
 
       const int shmem =
-          ::Kokkos::Impl::hip_single_inter_block_reduce_scan_shmem<
+          ::Kokkos::Impl::maca_single_inter_block_reduce_scan_shmem<
               false, WorkTag, value_type>(m_functor_reducer.get_functor(),
                                           block.y);
 
-      hip_parallel_launch<ParallelReduce, LaunchBounds>(
+      maca_parallel_launch<ParallelReduce, LaunchBounds>(
           *this, grid, block, shmem,
           m_policy.space().impl_internal_space_instance(),
           false);  // copy to device and execute

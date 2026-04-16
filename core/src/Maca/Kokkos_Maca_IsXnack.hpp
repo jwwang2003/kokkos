@@ -10,8 +10,7 @@
 
 namespace Kokkos::Impl {
 
-/*Based on AMD's ROCm 6.3.1 documentation:
-https://github.com/ROCm/Maca/blob/2c240cacff16c2bb18ce9e5b4c1b937ab17a0199/docs/how-to/hip_runtime_api/memory_management/unified_memory.rst?plain=1#L141-L146
+/*Based on AMD's ROCm 6.3.1 unified-memory documentation:
 
     To ensure the proper functioning of system allocated unified memory on
     supported GPUs, it is essential to configure the environment variable

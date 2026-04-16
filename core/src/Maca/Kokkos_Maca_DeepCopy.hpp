@@ -5,33 +5,33 @@
 #define KOKKOS_MACA_DEEP_COPY_HPP
 
 #include <Maca/Kokkos_Maca_Space.hpp>
-#include <Maca/Kokkos_Maca_Error.hpp>  // HIP_SAFE_CALL
+#include <Maca/Kokkos_Maca_Error.hpp>  // MACA_SAFE_CALL
 
 #include <Maca/Kokkos_Maca_Runtime.hpp>
 
 namespace Kokkos {
 namespace Impl {
 
-void DeepCopyHIP(void* dst, const void* src, size_t n);
-void DeepCopyAsyncHIP(const Maca& instance, void* dst, const void* src,
-                      size_t n);
-void DeepCopyAsyncHIP(void* dst, const void* src, size_t n);
+void DeepCopyMaca(void* dst, const void* src, size_t n);
+void DeepCopyAsyncMaca(const Maca& instance, void* dst, const void* src,
+                       size_t n);
+void DeepCopyAsyncMaca(void* dst, const void* src, size_t n);
 
 template <class MemSpace>
 struct DeepCopy<MemSpace, HostSpace, Maca,
                 std::enable_if_t<is_maca_type_space<MemSpace>::value>> {
-  DeepCopy(void* dst, const void* src, size_t n) { DeepCopyHIP(dst, src, n); }
+  DeepCopy(void* dst, const void* src, size_t n) { DeepCopyMaca(dst, src, n); }
   DeepCopy(const Maca& instance, void* dst, const void* src, size_t n) {
-    DeepCopyAsyncHIP(instance, dst, src, n);
+    DeepCopyAsyncMaca(instance, dst, src, n);
   }
 };
 
 template <class MemSpace>
 struct DeepCopy<HostSpace, MemSpace, Maca,
                 std::enable_if_t<is_maca_type_space<MemSpace>::value>> {
-  DeepCopy(void* dst, const void* src, size_t n) { DeepCopyHIP(dst, src, n); }
+  DeepCopy(void* dst, const void* src, size_t n) { DeepCopyMaca(dst, src, n); }
   DeepCopy(const Maca& instance, void* dst, const void* src, size_t n) {
-    DeepCopyAsyncHIP(instance, dst, src, n);
+    DeepCopyAsyncMaca(instance, dst, src, n);
   }
 };
 
@@ -39,9 +39,9 @@ template <class MemSpace1, class MemSpace2>
 struct DeepCopy<MemSpace1, MemSpace2, Maca,
                 std::enable_if_t<is_maca_type_space<MemSpace1>::value &&
                                  is_maca_type_space<MemSpace2>::value>> {
-  DeepCopy(void* dst, const void* src, size_t n) { DeepCopyHIP(dst, src, n); }
+  DeepCopy(void* dst, const void* src, size_t n) { DeepCopyMaca(dst, src, n); }
   DeepCopy(const Maca& instance, void* dst, const void* src, size_t n) {
-    DeepCopyAsyncHIP(instance, dst, src, n);
+    DeepCopyAsyncMaca(instance, dst, src, n);
   }
 };
 
@@ -51,13 +51,13 @@ struct DeepCopy<MemSpace1, MemSpace2, ExecutionSpace,
                                  is_maca_type_space<MemSpace2>::value &&
                                  !std::is_same_v<ExecutionSpace, Maca>>> {
   inline DeepCopy(void* dst, const void* src, size_t n) {
-    DeepCopyHIP(dst, src, n);
+    DeepCopyMaca(dst, src, n);
   }
 
   inline DeepCopy(const ExecutionSpace& exec, void* dst, const void* src,
                   size_t n) {
     exec.fence(fence_string());
-    DeepCopyAsyncHIP(dst, src, n);
+    DeepCopyAsyncMaca(dst, src, n);
   }
 
  private:
@@ -75,13 +75,13 @@ struct DeepCopy<MemSpace, HostSpace, ExecutionSpace,
                 std::enable_if_t<is_maca_type_space<MemSpace>::value &&
                                  !std::is_same_v<ExecutionSpace, Maca>>> {
   inline DeepCopy(void* dst, const void* src, size_t n) {
-    DeepCopyHIP(dst, src, n);
+    DeepCopyMaca(dst, src, n);
   }
 
   inline DeepCopy(const ExecutionSpace& exec, void* dst, const void* src,
                   size_t n) {
     exec.fence(fence_string());
-    DeepCopyAsyncHIP(dst, src, n);
+    DeepCopyAsyncMaca(dst, src, n);
   }
 
  private:
@@ -98,13 +98,13 @@ struct DeepCopy<HostSpace, MemSpace, ExecutionSpace,
                 std::enable_if_t<is_maca_type_space<MemSpace>::value &&
                                  !std::is_same_v<ExecutionSpace, Maca>>> {
   inline DeepCopy(void* dst, const void* src, size_t n) {
-    DeepCopyHIP(dst, src, n);
+    DeepCopyMaca(dst, src, n);
   }
 
   inline DeepCopy(const ExecutionSpace& exec, void* dst, const void* src,
                   size_t n) {
     exec.fence(fence_string());
-    DeepCopyAsyncHIP(dst, src, n);
+    DeepCopyAsyncMaca(dst, src, n);
   }
 
  private:

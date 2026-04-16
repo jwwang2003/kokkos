@@ -35,7 +35,7 @@ import kokkos.core;
 
 namespace {
 
-static std::atomic<bool> is_first_hip_managed_allocation(true);
+static std::atomic<bool> is_first_maca_managed_allocation(true);
 
 }  // namespace
 
@@ -51,10 +51,10 @@ MacaManagedMemorySupport query_maca_managed_memory_support(int device_id) {
   int has_managed_memory   = 0;
   int has_pageable_memory  = 0;
 
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceGetAttribute(
-      &has_managed_memory, hipDeviceAttributeManagedMemory, device_id));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceGetAttribute(
-      &has_pageable_memory, hipDeviceAttributePageableMemoryAccess, device_id));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaDeviceGetAttribute(
+      &has_managed_memory, macaDeviceAttributeManagedMemory, device_id));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaDeviceGetAttribute(
+      &has_pageable_memory, macaDeviceAttributePageableMemoryAccess, device_id));
 
   support.has_managed_memory_attribute =
       static_cast<bool>(has_managed_memory);
@@ -73,17 +73,17 @@ MacaManagedMemorySupport query_maca_managed_memory_support(int device_id) {
 
 MacaSpace::MacaSpace()
     : m_device(Maca().maca_device()), m_stream(Maca().maca_stream()) {}
-MacaSpace::MacaSpace(int device_id, hipStream_t stream)
+MacaSpace::MacaSpace(int device_id, macaStream_t stream)
     : m_device(device_id), m_stream(stream) {}
 
 MacaHostPinnedSpace::MacaHostPinnedSpace()
     : m_device(Maca().maca_device()), m_stream(Maca().maca_stream()) {}
-MacaHostPinnedSpace::MacaHostPinnedSpace(int device_id, hipStream_t stream)
+MacaHostPinnedSpace::MacaHostPinnedSpace(int device_id, macaStream_t stream)
     : m_device(device_id), m_stream(stream) {}
 
 MacaManagedSpace::MacaManagedSpace()
     : m_device(Maca().maca_device()), m_stream(Maca().maca_stream()) {}
-MacaManagedSpace::MacaManagedSpace(int device_id, hipStream_t stream)
+MacaManagedSpace::MacaManagedSpace(int device_id, macaStream_t stream)
     : m_device(device_id), m_stream(stream) {}
 
 void* MacaSpace::allocate(const Maca& exec_space,
@@ -109,7 +109,7 @@ void* MacaSpace::allocate(const char* arg_label, const size_t arg_alloc_size,
 }
 
 void* MacaSpace::impl_allocate(const int device_id,
-                              [[maybe_unused]] const hipStream_t stream,
+                              [[maybe_unused]] const macaStream_t stream,
                               const char* arg_label,
                               const size_t arg_alloc_size,
                               const size_t arg_logical_size,
@@ -118,23 +118,23 @@ void* MacaSpace::impl_allocate(const int device_id,
   // Instead of trying to allocate zero memory, return early.
   if (arg_alloc_size == 0) return ptr;
 
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(device_id));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(device_id));
 
 #ifdef KOKKOS_ENABLE_IMPL_MACA_MALLOC_ASYNC
-  auto const error_code = hipMallocAsync(&ptr, arg_alloc_size, stream);
+  auto const error_code = macaMallocAsync(&ptr, arg_alloc_size, stream);
   if (stream_sync_only) {
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipStreamSynchronize(stream));
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaStreamSynchronize(stream));
   } else {
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceSynchronize());
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaDeviceSynchronize());
   }
 #else
-  auto const error_code = hipMalloc(&ptr, arg_alloc_size);
+  auto const error_code = macaMalloc(&ptr, arg_alloc_size);
 #endif
 
-  if (error_code != hipSuccess) {
+  if (error_code != macaSuccess) {
     // This is the only way to clear the last error, which we should do here
     // since we're turning it into an exception here
-    (void)hipGetLastError();
+    (void)macaGetLastError();
     Kokkos::Impl::throw_bad_alloc(name(), arg_alloc_size, arg_label);
   }
   if (Kokkos::Profiling::profileLibraryLoaded()) {
@@ -161,12 +161,12 @@ void* MacaHostPinnedSpace::impl_allocate(
     const Kokkos::Tools::SpaceHandle arg_handle) const {
   void* ptr = nullptr;
 
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
-  auto const error_code = hipHostMalloc(&ptr, arg_alloc_size);
-  if (error_code != hipSuccess) {
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_device));
+  auto const error_code = macaHostMalloc(&ptr, arg_alloc_size);
+  if (error_code != macaSuccess) {
     // This is the only way to clear the last error, which we should do here
     // since we're turning it into an exception here
-    (void)hipGetLastError();
+    (void)macaGetLastError();
     Kokkos::Impl::throw_bad_alloc(name(), arg_alloc_size, arg_label);
   }
   if (Kokkos::Profiling::profileLibraryLoaded()) {
@@ -193,8 +193,8 @@ void* MacaManagedSpace::impl_allocate(
   void* ptr = nullptr;
 
   if (arg_alloc_size > 0) {
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
-    if (is_first_hip_managed_allocation.exchange(false) &&
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_device));
+    if (is_first_maca_managed_allocation.exchange(false) &&
         Kokkos::show_warnings()) {
       auto const support =
           Kokkos::Impl::query_maca_managed_memory_support(m_device);
@@ -203,10 +203,10 @@ void* MacaManagedSpace::impl_allocate(
             << "Kokkos::Maca::allocation WARNING: MacaManagedSpace is not "
                "fully supported on this system.\n"
             << "                                 "
-               "hipDeviceAttributeManagedMemory: "
+               "macaDeviceAttributeManagedMemory: "
             << support.has_managed_memory_attribute << '\n'
             << "                                 "
-               "hipDeviceAttributePageableMemoryAccess: "
+               "macaDeviceAttributePageableMemoryAccess: "
             << support.has_pageable_memory_access << '\n'
             << "                                 "
                "gpu_arch_can_access_system_memory: "
@@ -219,15 +219,15 @@ void* MacaManagedSpace::impl_allocate(
             << support.xnack_enabled_in_environment << '\n';
       }
     }
-    auto const error_code = hipMallocManaged(&ptr, arg_alloc_size);
-    if (error_code != hipSuccess) {
+    auto const error_code = macaMallocManaged(&ptr, arg_alloc_size);
+    if (error_code != macaSuccess) {
       // This is the only way to clear the last error, which we should do here
       // since we're turning it into an exception here
-      (void)hipGetLastError();
+      (void)macaGetLastError();
       Kokkos::Impl::throw_bad_alloc(name(), arg_alloc_size, arg_label);
     }
-    KOKKOS_IMPL_MACA_SAFE_CALL(hipMemAdvise(
-        ptr, arg_alloc_size, hipMemAdviseSetCoarseGrain, m_device));
+    KOKKOS_IMPL_MACA_SAFE_CALL(macaMemAdvise(
+        ptr, arg_alloc_size, macaMemAdviseSetCoarseGrain, m_device));
   }
 
   if (Kokkos::Profiling::profileLibraryLoaded()) {
@@ -238,7 +238,7 @@ void* MacaManagedSpace::impl_allocate(
 
   return ptr;
 }
-bool MacaManagedSpace::impl_hip_driver_check_page_migration() const {
+bool MacaManagedSpace::impl_maca_driver_check_page_migration() const {
   return Kokkos::Impl::query_maca_managed_memory_support(m_device)
       .page_migration_supported();
 }
@@ -263,12 +263,12 @@ void MacaSpace::impl_deallocate(
                                       reported_size);
   }
 #ifdef KOKKOS_ENABLE_IMPL_MACA_MALLOC_ASYNC
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipFreeAsync(arg_alloc_ptr, m_stream));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipDeviceSynchronize());
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_device));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaFreeAsync(arg_alloc_ptr, m_stream));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaDeviceSynchronize());
 #else
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipFree(arg_alloc_ptr));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_device));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaFree(arg_alloc_ptr));
 #endif
 }
 
@@ -293,8 +293,8 @@ void MacaHostPinnedSpace::impl_deallocate(
     Kokkos::Profiling::deallocateData(arg_handle, arg_label, arg_alloc_ptr,
                                       reported_size);
   }
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipHostFree(arg_alloc_ptr));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_device));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaHostFree(arg_alloc_ptr));
 }
 
 void MacaManagedSpace::deallocate(void* const arg_alloc_ptr,
@@ -318,13 +318,13 @@ void MacaManagedSpace::impl_deallocate(
     Kokkos::Profiling::deallocateData(arg_handle, arg_label, arg_alloc_ptr,
                                       reported_size);
   }
-  // We have to unset the CoarseGrain property manually as hipFree does not take
+  // We have to unset the CoarseGrain property manually as macaFree does not take
   // care of it. Otherwise, the allocation would continue to linger in the
   // kernel mem page table.
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipMemAdvise(
-      arg_alloc_ptr, arg_alloc_size, hipMemAdviseUnsetCoarseGrain, m_device));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipSetDevice(m_device));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipFree(arg_alloc_ptr));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaMemAdvise(
+      arg_alloc_ptr, arg_alloc_size, macaMemAdviseUnsetCoarseGrain, m_device));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaSetDevice(m_device));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaFree(arg_alloc_ptr));
 }
 
 }  // namespace Kokkos

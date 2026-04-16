@@ -14,7 +14,7 @@ namespace Kokkos {
 namespace Impl {
 
 template <class FunctorType, class ValueType, class... Traits>
-class ParallelScanHIPBase {
+class ParallelScanMacaBase {
  public:
   using Policy = Kokkos::RangePolicy<Traits...>;
 
@@ -92,7 +92,7 @@ class ParallelScanHIPBase {
         word_count(final_reducer.value_size() / sizeof(word_size_type));
 
     pointer_type const shared_value = reinterpret_cast<pointer_type>(
-        kokkos_impl_hip_shared_memory<word_size_type>() +
+        kokkos_impl_maca_shared_memory<word_size_type>() +
         word_count.value * threadIdx.y);
 
     final_reducer.init(shared_value);
@@ -114,9 +114,9 @@ class ParallelScanHIPBase {
     // totals. Blocks' scan values are written to 'blockIdx.x' location.
     // Block-groups' scan values are at: i = ( j * blockDim.y - 1 ) for i <
     // gridDim.x
-    hip_single_inter_block_reduce_scan<true>(
+    maca_single_inter_block_reduce_scan<true>(
         final_reducer, blockIdx.x, gridDim.x,
-        kokkos_impl_hip_shared_memory<word_size_type>(), m_scratch_space,
+        kokkos_impl_maca_shared_memory<word_size_type>(), m_scratch_space,
         m_scratch_flags);
   }
 
@@ -133,7 +133,7 @@ class ParallelScanHIPBase {
     // Use shared memory as an exclusive scan: { 0 , value[0] , value[1] ,
     // value[2] , ... }
     word_size_type* const shared_data =
-        kokkos_impl_hip_shared_memory<word_size_type>();
+        kokkos_impl_maca_shared_memory<word_size_type>();
     word_size_type* const shared_prefix =
         shared_data + word_count.value * threadIdx.y;
     word_size_type* const shared_accum =
@@ -149,7 +149,7 @@ class ParallelScanHIPBase {
     } else if (0 == threadIdx.y) {
       final_reducer.init(reinterpret_cast<pointer_type>(shared_accum));
     }
-    // FIXME_HIP below __syncthreads() is added to handle MI300A.
+    // FIXME_MACA below __syncthreads() is added to handle MI300A.
     // Likely compiler optimization bug.
     __syncthreads();
 
@@ -159,7 +159,7 @@ class ParallelScanHIPBase {
          iwork_base < range.end(); iwork_base += blockDim.y) {
       const typename Policy::member_type iwork = iwork_base + threadIdx.y;
 
-      // FIXME_HIP: we encountered something believed to be a compiler bug on
+      // FIXME_MACA: we encountered something believed to be a compiler bug on
       // MI300A: instead of syncing here, we need to sync before the loop
       // and at the very end of the loop.
       //__syncthreads();
@@ -187,7 +187,7 @@ class ParallelScanHIPBase {
       }
 
       // Scan block values into locations shared_data[1..blockDim.y]
-      hip_intra_block_reduce_scan<true>(
+      maca_intra_block_reduce_scan<true>(
           final_reducer,
           typename Analysis::pointer_type(shared_data + word_count.value));
 
@@ -210,7 +210,7 @@ class ParallelScanHIPBase {
       if (iwork + 1 == m_policy.end() && m_policy.end() == range.end() &&
           m_result_ptr_device_accessible)
         *m_result_ptr = *reinterpret_cast<pointer_type>(shared_prefix);
-      // FIXME_HIP below __syncthreads() is moved from the beginning of this
+      // FIXME_MACA below __syncthreads() is moved from the beginning of this
       // loop to here to handle issues on MI300A. Likely compiler bug.
       __syncthreads();
     }
@@ -218,6 +218,8 @@ class ParallelScanHIPBase {
 
  public:
   //----------------------------------------
+
+  Policy const& get_policy() const { return m_policy; }
 
   __device__ inline void operator()() const {
     if (!m_final) {
@@ -230,7 +232,7 @@ class ParallelScanHIPBase {
   inline void impl_execute(int block_size) {
     const index_type nwork = m_policy.end() - m_policy.begin();
     if (nwork) {
-      // FIXME_HIP we cannot choose it larger for large work sizes to work
+      // FIXME_MACA we cannot choose it larger for large work sizes to work
       // correctly, the unit tests fail with wrong results
       const int gridMaxComputeCapability_2x = 0x01fff;
 
@@ -262,22 +264,22 @@ class ParallelScanHIPBase {
       m_final = false;
       // these ones are OK to be just the base because the specializations
       // do not modify the kernel at all
-      Impl::hip_parallel_launch<ParallelScanHIPBase, LaunchBounds>(
+      Impl::maca_parallel_launch<ParallelScanMacaBase, LaunchBounds>(
           *this, grid, block, shmem,
           m_policy.space().impl_internal_space_instance(),
           false);  // copy to device and execute
 
       m_final = true;
-      Impl::hip_parallel_launch<ParallelScanHIPBase, LaunchBounds>(
+      Impl::maca_parallel_launch<ParallelScanMacaBase, LaunchBounds>(
           *this, grid, block, shmem,
           m_policy.space().impl_internal_space_instance(),
           false);  // copy to device and execute
     }
   }
 
-  ParallelScanHIPBase(const FunctorType& arg_functor, const Policy& arg_policy,
-                      pointer_type arg_result_ptr,
-                      bool arg_result_ptr_device_accessible)
+  ParallelScanMacaBase(const FunctorType& arg_functor, const Policy& arg_policy,
+                       pointer_type arg_result_ptr,
+                       bool arg_result_ptr_device_accessible)
       : m_functor_reducer(arg_functor, typename Analysis::Reducer{arg_functor}),
         m_policy(arg_policy),
         m_result_ptr(arg_result_ptr),
@@ -286,9 +288,9 @@ class ParallelScanHIPBase {
 
 template <class FunctorType, class... Traits>
 class ParallelScan<FunctorType, Kokkos::RangePolicy<Traits...>, Maca>
-    : public ParallelScanHIPBase<FunctorType, void, Traits...> {
+    : public ParallelScanMacaBase<FunctorType, void, Traits...> {
  public:
-  using Base = ParallelScanHIPBase<FunctorType, void, Traits...>;
+  using Base = ParallelScanMacaBase<FunctorType, void, Traits...>;
   using Base::operator();
 
   inline void execute() {
@@ -314,13 +316,14 @@ class ParallelScan<FunctorType, Kokkos::RangePolicy<Traits...>, Maca>
     const auto& instance =
         Base::m_policy.space().impl_internal_space_instance();
     auto shmem_functor = [&f](unsigned n) {
-      return hip_single_inter_block_reduce_scan_shmem<
+      return maca_single_inter_block_reduce_scan_shmem<
           true, typename Base::WorkTag, void>(f, n);
     };
     using DriverType = ParallelScan<FunctorType, typename Base::Policy, Maca>;
-    return Impl::maca_get_preferred_blocksize<DriverType,
-                                             typename Base::LaunchBounds>(
-        instance, shmem_functor);
+    return Impl::maca_collective_block_size_or_zero(
+        Impl::maca_get_preferred_blocksize<DriverType,
+                                           typename Base::LaunchBounds>(
+            instance, shmem_functor));
   }
 };
 
@@ -329,9 +332,9 @@ class ParallelScan<FunctorType, Kokkos::RangePolicy<Traits...>, Maca>
 template <class FunctorType, class ReturnType, class... Traits>
 class ParallelScanWithTotal<FunctorType, Kokkos::RangePolicy<Traits...>,
                             ReturnType, Maca>
-    : public ParallelScanHIPBase<FunctorType, ReturnType, Traits...> {
+    : public ParallelScanMacaBase<FunctorType, ReturnType, Traits...> {
  public:
-  using Base = ParallelScanHIPBase<FunctorType, ReturnType, Traits...>;
+  using Base = ParallelScanMacaBase<FunctorType, ReturnType, Traits...>;
   using Base::operator();
 
   inline void execute() {
@@ -372,13 +375,14 @@ class ParallelScanWithTotal<FunctorType, Kokkos::RangePolicy<Traits...>,
     const auto& instance =
         Base::m_policy.space().impl_internal_space_instance();
     auto shmem_functor = [&f](unsigned n) {
-      return hip_single_inter_block_reduce_scan_shmem<
+      return maca_single_inter_block_reduce_scan_shmem<
           true, typename Base::WorkTag, ReturnType>(f, n);
     };
     using DriverType = ParallelScanWithTotal<FunctorType, typename Base::Policy,
                                              ReturnType, Maca>;
-    return maca_get_preferred_blocksize<DriverType, typename Base::LaunchBounds>(
-        instance, shmem_functor);
+    return maca_collective_block_size_or_zero(
+        maca_get_preferred_blocksize<DriverType, typename Base::LaunchBounds>(
+            instance, shmem_functor));
   }
 };
 

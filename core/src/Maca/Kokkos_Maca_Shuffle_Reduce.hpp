@@ -21,7 +21,7 @@ namespace Impl {
  *   (x) blockDim.z == 1
  */
 template <typename ValueType, typename ReducerType>
-__device__ inline void hip_intra_warp_shuffle_reduction(
+__device__ inline void maca_intra_warp_shuffle_reduction(
     ValueType& result, ReducerType const& reducer,
     uint32_t const max_active_thread = blockDim.y) {
   unsigned int shift = 1;
@@ -43,7 +43,7 @@ __device__ inline void hip_intra_warp_shuffle_reduction(
 }
 
 template <typename ValueType, typename ReducerType>
-__device__ inline void hip_inter_warp_shuffle_reduction(
+__device__ inline void maca_inter_warp_shuffle_reduction(
     ValueType& value, const ReducerType& reducer,
     const int max_active_thread = blockDim.y) {
   constexpr unsigned int warp_size = MacaTraits::WarpSize;
@@ -76,15 +76,15 @@ __device__ inline void hip_inter_warp_shuffle_reduction(
 }
 
 template <typename ValueType, typename ReducerType>
-__device__ inline void hip_intra_block_shuffle_reduction(
+__device__ inline void maca_intra_block_shuffle_reduction(
     ValueType& value, ReducerType const& reducer,
     int const max_active_thread = blockDim.y) {
-  hip_intra_warp_shuffle_reduction(value, reducer, max_active_thread);
-  hip_inter_warp_shuffle_reduction(value, reducer, max_active_thread);
+  maca_intra_warp_shuffle_reduction(value, reducer, max_active_thread);
+  maca_inter_warp_shuffle_reduction(value, reducer, max_active_thread);
 }
 
 template <class FunctorType>
-__device__ inline bool hip_inter_block_shuffle_reduction(
+__device__ inline bool maca_inter_block_shuffle_reduction(
     typename FunctorType::reference_type value,
     typename FunctorType::reference_type neutral, FunctorType const& reducer,
     typename FunctorType::pointer_type const m_scratch_space,
@@ -96,7 +96,7 @@ __device__ inline bool hip_inter_block_shuffle_reduction(
 
   // Do the intra-block reduction with shfl operations for the intra warp
   // reduction and static shared memory for the inter warp reduction
-  hip_intra_block_shuffle_reduction(value, reducer, max_active_thread);
+  maca_intra_block_shuffle_reduction(value, reducer, max_active_thread);
 
   int const id = threadIdx.y * blockDim.x + threadIdx.x;
 
@@ -129,9 +129,10 @@ __device__ inline bool hip_inter_block_shuffle_reduction(
       pointer_type const global = m_scratch_space;
 
       // Reduce all global values with splitting work over threads in one warp
-      const int step_size = blockDim.x * blockDim.y < warp_size
-                                ? blockDim.x * blockDim.y
-                                : warp_size;
+      const int active_threads = blockDim.x * blockDim.y < warp_size
+                                     ? blockDim.x * blockDim.y
+                                     : warp_size;
+      const int step_size      = active_threads;
       for (int i = id; i < static_cast<int>(gridDim.x); i += step_size) {
         value_type tmp = global[i];
         reducer.join(&value, &tmp);
@@ -140,7 +141,7 @@ __device__ inline bool hip_inter_block_shuffle_reduction(
       // Perform shfl reductions within the warp only join if contribution is
       // valid (allows gridDim.x non power of two and <warp_size)
       for (unsigned int i = 1; i < warp_size; i *= 2) {
-        if ((blockDim.x * blockDim.y) > i) {
+        if (active_threads > int(i)) {
           value_type tmp = shfl_down(value, i, warp_size);
           if (id + i < gridDim.x) reducer.join(&value, &tmp);
         }

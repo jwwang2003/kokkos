@@ -55,9 +55,9 @@ class ParallelFor<FunctorType, Kokkos::WorkGraphPolicy<Traits...>, Maca> {
     const dim3 block(1, MacaTraits::WarpSize, warps_per_block);
     const int shared = 0;
 
-    HIPParallelLaunch<Self>(*this, grid, block, shared,
-                            m_policy.space().impl_internal_space_instance(),
-                            false);
+    MacaParallelLaunch<Self>(*this, grid, block, shared,
+                             m_policy.space().impl_internal_space_instance(),
+                             false);
   }
 
   inline ParallelFor(const FunctorType& arg_functor, const Policy& arg_policy)

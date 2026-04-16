@@ -15,15 +15,19 @@
 namespace Kokkos {
 namespace Impl {
 
+inline unsigned maca_collective_block_size_or_zero(unsigned block_size) {
+  return block_size == 0 ? 0u : Kokkos::bit_floor(block_size);
+}
+
 //----------------------------------------------------------------------------
 // Reduction-only implementation
 //----------------------------------------------------------------------------
 
 template <class FunctorType, bool UseShfl>
-struct HIPReductionsFunctor;
+struct MacaReductionsFunctor;
 
 template <typename FunctorType>
-struct HIPReductionsFunctor<FunctorType, true> {
+struct MacaReductionsFunctor<FunctorType, true> {
   using pointer_type = typename FunctorType::pointer_type;
   using Scalar       = typename FunctorType::value_type;
 
@@ -133,7 +137,7 @@ struct HIPReductionsFunctor<FunctorType, true> {
 };
 
 template <typename FunctorType>
-struct HIPReductionsFunctor<FunctorType, false> {
+struct MacaReductionsFunctor<FunctorType, false> {
   using pointer_type = typename FunctorType::pointer_type;
   using Scalar       = typename FunctorType::value_type;
 
@@ -242,7 +246,7 @@ struct HIPReductionsFunctor<FunctorType, false> {
  */
 
 template <bool DoScan, class FunctorType>
-__device__ void hip_intra_block_reduce_scan(
+__device__ void maca_intra_block_reduce_scan(
     FunctorType const& functor,
     typename FunctorType::pointer_type const base_data) {
   using pointer_type = typename FunctorType::pointer_type;
@@ -260,7 +264,7 @@ __device__ void hip_intra_block_reduce_scan(
   auto block_reduce_step = [&functor](int const R, pointer_type const TD,
                                       int const S, pointer_type memory_start,
                                       int index_shift) {
-    // FIXME_HIP define value_count inside the lambda instead of capturing it to
+    // FIXME_MACA define value_count inside the lambda instead of capturing it to
     // avoid a warning when using ROCm 7.0 with C++ 23
     const unsigned value_count = functor.length();
     const auto join_ptr = TD - (value_count << S) + value_count * index_shift;
@@ -346,7 +350,7 @@ __device__ void hip_intra_block_reduce_scan(
  */
 
 template <bool DoScan, typename FunctorType, typename SizeType>
-__device__ bool hip_single_inter_block_reduce_scan_impl(
+__device__ bool maca_single_inter_block_reduce_scan_impl(
     FunctorType const& functor, Maca::size_type const block_id,
     Maca::size_type const block_count, SizeType* const shared_data,
     SizeType* const global_data, Maca::size_type* const global_flags) {
@@ -362,8 +366,8 @@ __device__ bool hip_single_inter_block_reduce_scan_impl(
 
   // Must have power of two thread count
   if (BlockSizeMask & blockDim.y) {
-    Kokkos::Impl::hip_abort(
-        "Maca::hip_single_inter_block_reduce_scan requires power-of-two "
+    Kokkos::Impl::maca_abort(
+        "Maca::maca_single_inter_block_reduce_scan requires power-of-two "
         "blockDim");
   }
 
@@ -376,7 +380,7 @@ __device__ bool hip_single_inter_block_reduce_scan_impl(
   // NOLINTEND(bugprone-sizeof-expression)
 
   // Reduce the accumulation for the entire block.
-  hip_intra_block_reduce_scan<false>(functor, pointer_type(shared_data));
+  maca_intra_block_reduce_scan<false>(functor, pointer_type(shared_data));
 
   {
     // Write accumulation total to global scratch space.
@@ -417,7 +421,7 @@ __device__ bool hip_single_inter_block_reduce_scan_impl(
       }
     }
 
-    hip_intra_block_reduce_scan<DoScan>(functor, pointer_type(shared_data));
+    maca_intra_block_reduce_scan<DoScan>(functor, pointer_type(shared_data));
 
     if (DoScan) {
       pointer_type const shared_value = reinterpret_cast<pointer_type>(
@@ -442,7 +446,7 @@ __device__ bool hip_single_inter_block_reduce_scan_impl(
 }
 
 template <bool DoScan, typename FunctorType, typename SizeType>
-__device__ bool hip_single_inter_block_reduce_scan(
+__device__ bool maca_single_inter_block_reduce_scan(
     FunctorType const& functor, Maca::size_type const block_id,
     Maca::size_type const block_count, SizeType* const shared_data,
     SizeType* const global_data, Maca::size_type* const global_flags) {
@@ -450,16 +454,16 @@ __device__ bool hip_single_inter_block_reduce_scan(
   // reduction-only path. Otherwise, we use the common path between reduction
   // and scan.
   if (!DoScan && !std::is_pointer_v<typename FunctorType::reference_type>)
-    // FIXME_HIP_PERFORMANCE I don't know where 16 comes from. This inequality
+    // FIXME_MACA_PERFORMANCE I don't know where 16 comes from. This inequality
     // determines if we use shared memory (false) or shuffle (true)
-    return Kokkos::Impl::HIPReductionsFunctor<
+    return Kokkos::Impl::MacaReductionsFunctor<
         FunctorType, (sizeof(typename FunctorType::value_type) >
                       16)>::scalar_inter_block_reduction(functor, block_count,
                                                          shared_data,
                                                          global_data,
                                                          global_flags);
   else {
-    return hip_single_inter_block_reduce_scan_impl<DoScan>(
+    return maca_single_inter_block_reduce_scan_impl<DoScan>(
         functor, block_id, block_count, shared_data, global_data, global_flags);
   }
 }
@@ -467,8 +471,8 @@ __device__ bool hip_single_inter_block_reduce_scan(
 // Size in bytes required for inter block reduce or scan
 template <bool DoScan, class ArgTag, class ValueType, class FunctorType>
 inline std::enable_if_t<DoScan, unsigned>
-hip_single_inter_block_reduce_scan_shmem(const FunctorType& functor,
-                                         const unsigned BlockSize) {
+maca_single_inter_block_reduce_scan_shmem(const FunctorType& functor,
+                                          const unsigned BlockSize) {
   using Analysis =
       Impl::FunctorAnalysis<Impl::FunctorPatternInterface::SCAN,
                             RangePolicy<Maca, ArgTag>, FunctorType, ValueType>;
@@ -478,8 +482,8 @@ hip_single_inter_block_reduce_scan_shmem(const FunctorType& functor,
 
 template <bool DoScan, class ArgTag, class ValueType, class FunctorType>
 inline std::enable_if_t<!DoScan, unsigned>
-hip_single_inter_block_reduce_scan_shmem(const FunctorType& functor,
-                                         const unsigned BlockSize) {
+maca_single_inter_block_reduce_scan_shmem(const FunctorType& functor,
+                                          const unsigned BlockSize) {
   using Analysis =
       Impl::FunctorAnalysis<Impl::FunctorPatternInterface::REDUCE,
                             RangePolicy<Maca, ArgTag>, FunctorType, ValueType>;

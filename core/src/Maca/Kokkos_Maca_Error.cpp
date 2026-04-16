@@ -11,7 +11,7 @@
 
 namespace Kokkos {
 namespace Impl {
-void maca_internal_error_throw(hipError_t e, const char *name, const char *file,
+void maca_internal_error_throw(macaError_t e, const char *name, const char *file,
                               const int line) {
   std::ostringstream out;
   out << name << " error( " << mcGetErrorName(e)
@@ -22,7 +22,7 @@ void maca_internal_error_throw(hipError_t e, const char *name, const char *file,
   throw_runtime_exception(out.str());
 }
 
-void maca_internal_error_abort(hipError_t e, const char *name, const char *file,
+void maca_internal_error_abort(macaError_t e, const char *name, const char *file,
                               const int line) {
   std::ostringstream out;
   out << name << " error( " << mcGetErrorName(e)

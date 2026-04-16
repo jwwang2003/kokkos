@@ -206,13 +206,13 @@ bhalf_t cast_to_bhalf(unsigned int val) { return bhalf_t::impl_type(val); }
 
 KOKKOS_INLINE_FUNCTION
 bhalf_t cast_to_bhalf(long long val) {
-  // FIXME_HIP
+  // FIXME_MACA
   return bhalf_t::impl_type(static_cast<double>(val));
 }
 
 KOKKOS_INLINE_FUNCTION
 bhalf_t cast_to_bhalf(unsigned long long val) {
-  // FIXME_HIP
+  // FIXME_MACA
   return bhalf_t::impl_type(static_cast<double>(val));
 }
 

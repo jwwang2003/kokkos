@@ -124,8 +124,8 @@ int get_device_count() {
   return count;
 #elif defined(KOKKOS_ENABLE_MACA)
   int count;
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipInit(0));
-  KOKKOS_IMPL_MACA_SAFE_CALL(hipGetDeviceCount(&count));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaInit(0));
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaGetDeviceCount(&count));
   return count;
 #elif defined(KOKKOS_ENABLE_SYCL)
   return Kokkos::Impl::get_sycl_devices().size();

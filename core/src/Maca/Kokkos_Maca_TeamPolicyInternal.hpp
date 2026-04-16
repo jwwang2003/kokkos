@@ -349,7 +349,7 @@ class TeamPolicyInternal<Maca, Properties...>
     const int vector_length = impl_vector_length();
 
     const auto functor = [&f, shmem_block, shmem_thread, vector_length](
-                             const hipFuncAttributes& attr, int block_size) {
+                             const macaFuncAttributes& attr, int block_size) {
       int functor_shmem =
           ::Kokkos::Impl::FunctorTeamShmemSize<FunctorType>::value(
               f, block_size / vector_length);
@@ -414,8 +414,8 @@ __device__ inline int64_t maca_get_scratch_index(Maca::size_type league_size,
   return threadid;
 }
 
-__device__ inline void hip_release_scratch_index(int32_t* scratch_locks,
-                                                 int64_t threadid) {
+__device__ inline void maca_release_scratch_index(int32_t* scratch_locks,
+                                                  int64_t threadid) {
   __syncthreads();
   if (threadIdx.x == 0 && threadIdx.y == 0) {
     scratch_locks[threadid] = 0;

@@ -24,7 +24,7 @@ namespace Kokkos {
 namespace Impl {
 
 template <typename Type>
-struct HIPJoinFunctor {
+struct MacaJoinFunctor {
   using value_type = Type;
 
   KOKKOS_INLINE_FUNCTION
@@ -184,7 +184,7 @@ class MacaTeamMember {
       WrappedReducerType const& wrapped_reducer,
       typename WrappedReducerType::value_type& value) const noexcept {
 #ifdef __MACA_ARCH__
-    hip_intra_block_shuffle_reduction(value, wrapped_reducer, blockDim.y);
+    maca_intra_block_shuffle_reduction(value, wrapped_reducer, blockDim.y);
 #else
     (void)wrapped_reducer;
     (void)value;
@@ -210,17 +210,42 @@ class MacaTeamMember {
     __syncthreads();  // Don't write in to shared data until all threads have
                       // entered this function
 
+    base_data[threadIdx.y + 1] = value;
+
+    if ((blockDim.y & (blockDim.y - 1)) != 0) {
+      if (0 == threadIdx.y) {
+        Type running_total = 0;
+        for (int i = 0; i < blockDim.y; ++i) {
+          const Type contribution = base_data[i + 1];
+          base_data[i]            = running_total;
+          running_total += contribution;
+        }
+        base_data[blockDim.y] = running_total;
+      }
+
+      __syncthreads();
+
+      if (global_accum) {
+        if (blockDim.y == threadIdx.y + 1) {
+          base_data[blockDim.y] =
+              atomic_fetch_add(global_accum, base_data[blockDim.y]);
+        }
+        __syncthreads();  // Wait for atomic
+        return base_data[threadIdx.y] + base_data[blockDim.y];
+      }
+
+      return base_data[threadIdx.y];
+    }
+
     if (0 == threadIdx.y) {
       base_data[0] = 0;
     }
 
-    base_data[threadIdx.y + 1] = value;
-
-    Impl::HIPJoinFunctor<Type> hip_join_functor;
+    Impl::MacaJoinFunctor<Type> maca_join_functor;
     typename Kokkos::Impl::FunctorAnalysis<
-        FunctorPatternInterface::REDUCE, TeamPolicy<Maca>,
-        Impl::HIPJoinFunctor<Type>, Type>::Reducer reducer(hip_join_functor);
-    Impl::hip_intra_block_reduce_scan<true>(reducer, base_data + 1);
+        FunctorPatternInterface::SCAN, TeamPolicy<Maca>,
+        Impl::MacaJoinFunctor<Type>, Type>::Reducer reducer(maca_join_functor);
+    Impl::maca_intra_block_reduce_scan<true>(reducer, base_data + 1);
 
     if (global_accum) {
       if (blockDim.y == threadIdx.y + 1) {

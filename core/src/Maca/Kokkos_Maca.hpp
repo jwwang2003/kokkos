@@ -44,9 +44,9 @@ class Maca {
   ~Maca();
   Maca();
 
-  explicit Maca(hipStream_t stream) : Maca(stream, Impl::ManageStream::no) {}
+  explicit Maca(macaStream_t stream) : Maca(stream, Impl::ManageStream::no) {}
 
-  Maca(hipStream_t stream, Impl::ManageStream manage_stream);
+  Maca(macaStream_t stream, Impl::ManageStream manage_stream);
 
   //@}
   //------------------------------------
@@ -64,7 +64,7 @@ class Maca {
   void fence(const std::string& name =
                  "Kokkos::Maca::fence(): Unnamed Instance Fence") const;
 
-  hipStream_t maca_stream() const;
+  macaStream_t maca_stream() const;
 
   /// \brief Print configuration information to the given output stream.
   void print_configuration(std::ostream& os, bool verbose = false) const;
@@ -76,7 +76,7 @@ class Maca {
    *
    */
   int maca_device() const;
-  static hipDeviceProp_t const& maca_device_prop();
+  static macaDeviceProp_t const& maca_device_prop();
 
   static void impl_initialize(InitializationSettings const&);
 

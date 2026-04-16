@@ -14,6 +14,14 @@
 namespace Kokkos {
 namespace Impl {
 
+inline int maca_team_reduce_block_count(std::size_t league_size, int team_size,
+                                        bool use_shfl_reduction) {
+  const auto max_block_count =
+      use_shfl_reduction ? std::size_t(1024u * 32u)
+                         : std::size_t(std::max(team_size, 0));
+  return std::max(1, static_cast<int>(std::min(league_size, max_block_count)));
+}
+
 template <class CombinedFunctorReducerType, class... Properties>
 class ParallelReduce<CombinedFunctorReducerType,
                      Kokkos::TeamPolicy<Properties...>, Maca> {
@@ -53,7 +61,7 @@ class ParallelReduce<CombinedFunctorReducerType,
   using size_type    = Maca::size_type;
 
   // static int constexpr UseShflReduction = false;
-  // FIXME_HIP This should be disabled unconditionally for best performance, but
+  // FIXME_MACA This should be disabled unconditionally for best performance, but
   // it currently causes tests to fail.
   static constexpr int UseShflReduction =
       (ReducerType::static_value_size() != 0);
@@ -108,7 +116,7 @@ class ParallelReduce<CombinedFunctorReducerType,
          league_rank += gridDim.x) {
       this->template exec_team<work_tag>(
           member_type(
-              kokkos_impl_hip_shared_memory<char>() + m_team_begin,
+              kokkos_impl_maca_shared_memory<char>() + m_team_begin,
               m_shmem_begin, m_shmem_size,
               reinterpret_cast<void*>(
                   reinterpret_cast<char*>(m_scratch_ptr[1]) +
@@ -119,36 +127,9 @@ class ParallelReduce<CombinedFunctorReducerType,
     }
   }
 
-  int compute_block_count() const {
-    constexpr auto light_weight =
-        Kokkos::Experimental::WorkItemProperty::HintLightWeight;
-    constexpr typename Policy::work_item_property property;
-    // Numbers were tuned on MI210 using dot product and yAx benchmarks
-    constexpr int block_max =
-        (property & light_weight) == light_weight ? 2097152 : 65536;
-    constexpr int preferred_block_min = 1024;
-    int block_count                   = m_league_size;
-    if (block_count < preferred_block_min) {
-      // keep blocks as is, already low parallelism
-    } else if (block_count >= block_max) {
-      block_count = block_max;
-
-    } else {
-      int nwork = m_league_size * m_team_size;
-      int items_per_thread =
-          (nwork + block_count * m_team_size - 1) / (block_count * m_team_size);
-      if (items_per_thread < 4) {
-        int ratio = std::min(
-            (block_count + preferred_block_min - 1) / preferred_block_min,
-            (4 + items_per_thread - 1) / items_per_thread);
-        block_count /= ratio;
-      }
-    }
-
-    return block_count;
-  }
-
  public:
+  Policy const& get_policy() const { return m_policy; }
+
   __device__ inline void operator()() const {
     int64_t threadid = 0;
     if (m_scratch_size[1] > 0) {
@@ -161,7 +142,7 @@ class ParallelReduce<CombinedFunctorReducerType,
     run(ReductionTag{}, threadid);
 
     if (m_scratch_size[1] > 0) {
-      hip_release_scratch_index(m_scratch_locks, threadid);
+      maca_release_scratch_index(m_scratch_locks, threadid);
     }
   }
 
@@ -173,7 +154,7 @@ class ParallelReduce<CombinedFunctorReducerType,
         word_count(reducer.value_size() / sizeof(word_size_type));
 
     reference_type value = reducer.init(reinterpret_cast<pointer_type>(
-        kokkos_impl_hip_shared_memory<word_size_type>() +
+        kokkos_impl_maca_shared_memory<word_size_type>() +
         threadIdx.y * word_count.value));
     // Iterate this block through the league
     iterate_through_league(threadid, value);
@@ -181,16 +162,16 @@ class ParallelReduce<CombinedFunctorReducerType,
     // Reduce with final value at blockDim.y - 1 location.
     bool do_final_reduce = (m_league_size == 0);
     if (!do_final_reduce)
-      do_final_reduce = hip_single_inter_block_reduce_scan<false>(
+      do_final_reduce = maca_single_inter_block_reduce_scan<false>(
           reducer, blockIdx.x, gridDim.x,
-          kokkos_impl_hip_shared_memory<word_size_type>(), m_scratch_space,
+          kokkos_impl_maca_shared_memory<word_size_type>(), m_scratch_space,
           m_scratch_flags);
     if (do_final_reduce) {
       // This is the final block with the final result at the final threads'
       // location
 
       word_size_type* const shared =
-          kokkos_impl_hip_shared_memory<word_size_type>() +
+          kokkos_impl_maca_shared_memory<word_size_type>() +
           (blockDim.y - 1) * word_count.value;
       size_type* const global =
           m_result_ptr_device_accessible
@@ -230,7 +211,7 @@ class ParallelReduce<CombinedFunctorReducerType,
     if (m_league_size == 0) {
       reducer.final(&value);
       *result = value;
-    } else if (Impl::hip_inter_block_shuffle_reduction(
+    } else if (Impl::maca_inter_block_shuffle_reduction(
                    value, init, reducer,
                    reinterpret_cast<pointer_type>(m_scratch_space), result,
                    m_scratch_flags, blockDim.y)) {
@@ -252,7 +233,9 @@ class ParallelReduce<CombinedFunctorReducerType,
                                  Policy::is_graph_kernel::value ||
                                  !std::is_same<ReducerType, InvalidType>::value;
     if (!is_empty_range || need_device_set) {
-      int const block_count = compute_block_count();
+      int const block_count =
+          maca_team_reduce_block_count(m_league_size, m_team_size,
+                                       UseShflReduction);
 
       m_scratch_space =
           reinterpret_cast<word_size_type*>(maca_internal_scratch_space(
@@ -268,7 +251,7 @@ class ParallelReduce<CombinedFunctorReducerType,
       }
       const int shmem_size_total = m_team_begin + m_shmem_begin + m_shmem_size;
 
-      Impl::hip_parallel_launch<ParallelReduce, launch_bounds>(
+      Impl::maca_parallel_launch<ParallelReduce, launch_bounds>(
           *this, grid, block, shmem_size_total,
           m_policy.space().impl_internal_space_instance(),
           true);  // copy to device and execute
@@ -331,7 +314,7 @@ class ParallelReduce<CombinedFunctorReducerType,
     m_team_begin =
         UseShflReduction
             ? 0
-            : hip_single_inter_block_reduce_scan_shmem<false, work_tag,
+            : maca_single_inter_block_reduce_scan_shmem<false, work_tag,
                                                        value_type>(
                   arg_functor_reducer.get_functor(), m_team_size);
     m_shmem_begin = sizeof(double) * (m_team_size + 2);
