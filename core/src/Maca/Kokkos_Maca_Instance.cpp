@@ -192,6 +192,7 @@ MacaInternal::MacaInternal(macaStream_t stream) : m_stream(stream) {
     const unsigned reduce_block_count =
         maxWarpCount * Impl::MacaTraits::WarpSize;
 
+    (void)scratch_unified(static_cast<size_t>(16) * sizeof(size_type));
     (void)scratch_flags(static_cast<size_t>(reduce_block_count * 2) *
                         sizeof(size_type));
     (void)scratch_space(static_cast<size_t>(reduce_block_count * 16) *
@@ -253,6 +254,28 @@ Kokkos::Maca::size_type *MacaInternal::scratch_flags(const std::size_t size) {
   }
 
   return m_scratchFlags;
+}
+
+Kokkos::Maca::size_type *MacaInternal::scratch_unified(
+    const std::size_t size) {
+  if (verify_is_initialized("scratch_unified") &&
+      m_scratchUnifiedCount < scratch_count(size)) {
+    auto mem_space = Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
+
+    if (m_scratchUnified) {
+      mem_space.deallocate(m_scratchUnified,
+                           m_scratchUnifiedCount * sizeScratchGrain);
+    }
+
+    m_scratchUnifiedCount = scratch_count(size);
+
+    std::size_t alloc_size =
+        multiply_overflow_abort(m_scratchUnifiedCount, sizeScratchGrain);
+    m_scratchUnified = static_cast<size_type *>(
+        mem_space.allocate("Kokkos::InternalScratchUnified", alloc_size));
+  }
+
+  return m_scratchUnified;
 }
 
 Kokkos::Maca::size_type *MacaInternal::stage_functor_for_execution(
@@ -381,6 +404,11 @@ MacaInternal::~MacaInternal() {
 
   auto host_mem_space =
       Kokkos::MacaHostPinnedSpace::impl_create(m_macaDev, m_stream);
+  if (m_scratchUnified) {
+    host_mem_space.deallocate(m_scratchUnified,
+                              m_scratchUnifiedCount * sizeScratchGrain);
+    m_scratchUnified = nullptr;
+  }
   for (auto &slot : m_scratchFunctorSlots) {
     if (slot.reusable) {
       KOKKOS_IMPL_MACA_SAFE_CALL(macaEventDestroy(slot.reusable));
@@ -427,6 +455,11 @@ Kokkos::Maca::size_type *maca_internal_scratch_space(const Maca &instance,
 Kokkos::Maca::size_type *maca_internal_scratch_flags(const Maca &instance,
                                                    const std::size_t size) {
   return instance.impl_internal_space_instance()->scratch_flags(size);
+}
+
+Kokkos::Maca::size_type *maca_internal_scratch_unified(const Maca &instance,
+                                                     const std::size_t size) {
+  return instance.impl_internal_space_instance()->scratch_unified(size);
 }
 
 }  // namespace Impl

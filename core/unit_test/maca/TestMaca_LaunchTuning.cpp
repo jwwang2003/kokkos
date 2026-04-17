@@ -12,6 +12,8 @@ import kokkos.core;
 
 #include <Maca/Kokkos_Maca_BlockSize_Deduction.hpp>
 #include <Maca/Kokkos_Maca_ParallelFor_Range.hpp>
+#include <Maca/Kokkos_Maca_ParallelReduce_Range.hpp>
+#include <Maca/Kokkos_Maca_ParallelFor_Team.hpp>
 #include <Maca/Kokkos_Maca_ParallelReduce_Team.hpp>
 
 #include <array>
@@ -23,6 +25,54 @@ struct MacaRangeBlocksizeProbeFunctor {
   using execution_space = Kokkos::Maca;
   KOKKOS_FUNCTION void operator()(int) const {}
 };
+
+struct MacaRangeReduceProbeFunctor {
+  using execution_space = Kokkos::Maca;
+
+  KOKKOS_FUNCTION void operator()(int i, long long& value) const {
+    value += static_cast<long long>((i % 17) + 1);
+  }
+};
+
+inline long long expected_range_reduce_probe_sum(int nwork) {
+  long long expected = 0;
+  for (int i = 0; i < nwork; ++i) {
+    expected += static_cast<long long>((i % 17) + 1);
+  }
+  return expected;
+}
+
+inline int explicit_max_active_blocks_per_sm(
+    macaDeviceProp_t const& props, macaFuncAttributes const& attr,
+    int block_size, size_t dynamic_shmem) {
+  int const regs_per_thread = attr.numRegs;
+  int const allocated_regs_per_thread =
+      regs_per_thread == 0 ? 0 : 8 * ((regs_per_thread + 8 - 1) / 8);
+  int max_blocks_regs =
+      allocated_regs_per_thread == 0
+          ? props.maxBlocksPerMultiProcessor
+          : props.regsPerMultiprocessor /
+                (allocated_regs_per_thread * block_size);
+
+  size_t const total_shmem = attr.sharedSizeBytes + dynamic_shmem;
+  size_t const max_dynamic_shmem_per_block =
+      attr.maxDynamicSharedSizeBytes > 0
+          ? size_t(attr.maxDynamicSharedSizeBytes)
+          : (attr.sharedSizeBytes >= size_t(props.sharedMemPerBlock)
+                 ? 0
+                 : size_t(props.sharedMemPerBlock) -
+                       size_t(attr.sharedSizeBytes));
+  int const max_blocks_shmem =
+      total_shmem > size_t(props.sharedMemPerBlock) ||
+              dynamic_shmem > max_dynamic_shmem_per_block
+          ? 0
+          : (total_shmem > 0
+                 ? int(props.sharedMemPerMultiprocessor / total_shmem)
+                 : max_blocks_regs);
+
+  return std::min({max_blocks_regs, max_blocks_shmem,
+                   props.maxBlocksPerMultiProcessor});
+}
 
 template <class DriverType, class LaunchBounds,
           Kokkos::Impl::MacaLaunchMechanism LaunchMechanism =
@@ -80,6 +130,84 @@ int explicit_no_shmem_block_size_scan(
 
   return best_block_size;
 }
+
+template <class FunctorType, class DriverType, class LaunchBounds,
+          Kokkos::Impl::MacaLaunchMechanism LaunchMechanism =
+              Kokkos::Impl::DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
+int explicit_team_block_size_scan(
+    Kokkos::Impl::MacaInternal const* maca_instance,
+    FunctorType const& functor, int vector_length, bool early_termination) {
+  auto const& props = maca_instance->m_deviceProp;
+  auto const attr =
+      Kokkos::Impl::MacaParallelLaunch<DriverType, LaunchBounds,
+                                       LaunchMechanism>::get_maca_func_attributes(
+          maca_instance->m_macaDev);
+
+  const int warp_size =
+      std::max(1, int(props.warpSize > 0 ? props.warpSize
+                                         : Kokkos::Impl::MacaTraits::WarpSize));
+  int max_threads_per_block =
+      std::min(attr.maxThreadsPerBlock,
+               LaunchBounds::maxTperB == 0 ? int(props.maxThreadsPerBlock)
+                                           : int(LaunchBounds::maxTperB));
+  max_threads_per_block = (max_threads_per_block / warp_size) * warp_size;
+  if (max_threads_per_block < warp_size) return 0;
+
+  const int min_blocks_per_sm =
+      LaunchBounds::minBperSM == 0 ? 1 : int(LaunchBounds::minBperSM);
+  int best_block_size     = 0;
+  int best_threads_per_sm = 0;
+
+  for (int block_size = max_threads_per_block; block_size >= warp_size;
+       block_size -= warp_size) {
+    size_t const functor_shmem =
+        Kokkos::Impl::FunctorTeamShmemSize<FunctorType>::value(
+            functor, block_size / vector_length);
+    size_t const dynamic_shmem =
+        2 * sizeof(double) + sizeof(double) * (block_size / vector_length) +
+        functor_shmem;
+
+    int blocks_per_sm = explicit_max_active_blocks_per_sm(
+        props, attr, block_size, dynamic_shmem);
+    int threads_per_sm = blocks_per_sm * block_size;
+
+    if (threads_per_sm > props.maxThreadsPerMultiProcessor) {
+      blocks_per_sm  = props.maxThreadsPerMultiProcessor / block_size;
+      threads_per_sm = blocks_per_sm * block_size;
+    }
+
+    if (blocks_per_sm >= min_blocks_per_sm) {
+      if ((threads_per_sm > best_threads_per_sm) ||
+          ((block_size >= 128) && (threads_per_sm == best_threads_per_sm))) {
+        best_block_size     = block_size;
+        best_threads_per_sm = threads_per_sm;
+      }
+    }
+
+    if (early_termination && best_block_size != 0) break;
+  }
+
+  return best_block_size;
+}
+
+struct MacaTeamBlocksizeProbeFunctor {
+  using execution_space = Kokkos::Maca;
+  using policy_type     = Kokkos::TeamPolicy<execution_space>;
+  using member_type     = typename policy_type::member_type;
+
+  int columns;
+  int repeats;
+  Kokkos::View<double**, Kokkos::LayoutRight, execution_space> values;
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(member_type const& team) const {
+    int const i = team.league_rank();
+    for (int r = 0; r < repeats; ++r) {
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team, columns),
+                           [&](int j) { values(i, j) += 1.0; });
+    }
+  }
+};
 
 struct MacaLaunchTuningFunctor {
   using execution_space = Kokkos::Maca;
@@ -205,6 +333,98 @@ TEST(maca, range_blocksize_no_shmem_matches_explicit_occupancy_scan) {
       driver_type, launch_bounds>(maca_instance);
   ASSERT_GT(expected, 0);
   EXPECT_EQ(actual, expected);
+}
+
+TEST(maca, team_policy_auto_blocksize_matches_explicit_attr_scan) {
+  using execution_space = Kokkos::Maca;
+  using policy_type     = Kokkos::TeamPolicy<execution_space>;
+  using launch_bounds   = typename policy_type::launch_bounds;
+  using driver_type =
+      Kokkos::Impl::ParallelFor<MacaTeamBlocksizeProbeFunctor, policy_type>;
+
+  execution_space exec;
+  Kokkos::View<double**, Kokkos::LayoutRight, execution_space> values(
+      "values", 1, 64);
+  MacaTeamBlocksizeProbeFunctor functor{64, 8, values};
+  policy_type policy(exec, 1, Kokkos::AUTO);
+
+  int const expected_recommended =
+      explicit_team_block_size_scan<MacaTeamBlocksizeProbeFunctor, driver_type,
+                                    launch_bounds>(exec.impl_internal_space_instance(),
+                                                   functor, 1, false);
+  int const actual_recommended =
+      policy.team_size_recommended(functor, Kokkos::ParallelForTag{});
+  ASSERT_GT(expected_recommended, 0);
+  EXPECT_EQ(actual_recommended, expected_recommended);
+}
+
+TEST(maca, range_reduce_block_count_matches_cuda_grid_policy) {
+  using execution_space = Kokkos::Maca;
+  using policy_type     = Kokkos::RangePolicy<execution_space>;
+  using launch_bounds   = typename policy_type::launch_bounds;
+  using value_type      = long long;
+  using analysis        = Kokkos::Impl::FunctorAnalysis<
+      Kokkos::Impl::FunctorPatternInterface::REDUCE, policy_type,
+      MacaRangeReduceProbeFunctor, value_type>;
+  using reducer_type = typename analysis::Reducer;
+  using driver_type  = Kokkos::Impl::ParallelReduce<
+      Kokkos::Impl::CombinedFunctorReducer<MacaRangeReduceProbeFunctor,
+                                           reducer_type>,
+      policy_type, execution_space>;
+
+  execution_space exec;
+  auto const* maca_instance = exec.impl_internal_space_instance();
+  MacaRangeReduceProbeFunctor functor{};
+
+  auto shmem_functor = [&functor](unsigned block_size) {
+    return Kokkos::Impl::maca_single_inter_block_reduce_scan_shmem<
+        false, typename policy_type::work_tag, value_type>(functor,
+                                                            block_size);
+  };
+  int const block_size = Kokkos::Impl::maca_collective_block_size_or_zero(
+      Kokkos::Impl::maca_get_preferred_blocksize<driver_type, launch_bounds>(
+          maca_instance, shmem_functor));
+  ASSERT_GT(block_size, 0);
+
+  auto const nwork = static_cast<typename policy_type::index_type>(
+      exec.concurrency() * 8);
+  auto const expected = std::min<typename policy_type::index_type>(
+      exec.concurrency() / block_size, (nwork + block_size - 1) / block_size);
+  ASSERT_GT(expected, 0);
+
+  int const actual = Kokkos::Impl::maca_range_reduce_block_count(
+      nwork, block_size, exec.concurrency());
+  EXPECT_EQ(actual, expected);
+}
+
+TEST(maca, range_reduce_large_scalar_host_and_device_results_are_correct) {
+  using execution_space = Kokkos::Maca;
+  using policy_type     = Kokkos::RangePolicy<execution_space>;
+
+  execution_space exec;
+  constexpr int nwork = 1 << 20;
+  policy_type policy(exec, 0, nwork);
+  MacaRangeReduceProbeFunctor functor{};
+
+  long long scalar_result = 0;
+  Kokkos::View<long long, Kokkos::HostSpace> host_result("host_result");
+  Kokkos::View<long long, execution_space> device_result("device_result");
+
+  Kokkos::parallel_reduce("maca_range_reduce_large_scalar", policy, functor,
+                          scalar_result);
+  Kokkos::parallel_reduce("maca_range_reduce_large_host", policy, functor,
+                          host_result);
+  Kokkos::parallel_reduce("maca_range_reduce_large_device", policy, functor,
+                          device_result);
+  exec.fence();
+
+  auto const device_result_host =
+      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, device_result);
+  auto const expected = expected_range_reduce_probe_sum(nwork);
+
+  EXPECT_EQ(scalar_result, expected);
+  EXPECT_EQ(host_result(), expected);
+  EXPECT_EQ(device_result_host(), expected);
 }
 
 struct MacaSlowGlobalLaunchFunctor {

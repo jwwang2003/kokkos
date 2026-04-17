@@ -61,7 +61,6 @@ inline DeviceType devicetype_from_uint32t(const uint32_t in) {
     case 7: return DeviceType::Threads;
     case 8: return DeviceType::SYCL;
     case 9: return DeviceType::OpenACC;
-    case 10: return DeviceType::NextSilicon;
     default: return DeviceType::Unknown;  // TODO: error out?
   }
 }

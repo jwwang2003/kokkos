@@ -432,7 +432,6 @@ static_assert(
          (defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_MACA) ? 1 : 0) +        \
          (defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_SYCL) ? 1 : 0) +        \
          (defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_OPENACC) ? 1 : 0) +     \
-         (defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_NEXTSILICON) ? 1 : 0) + \
          (defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_OPENMP) ? 1 : 0) +      \
          (defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_THREADS) ? 1 : 0) +     \
          (defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_HPX) ? 1 : 0) +         \

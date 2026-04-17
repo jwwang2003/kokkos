@@ -250,6 +250,35 @@ class CombinedReduceFunctorSameType {
   }
 };
 
+template <class ValueType, class DeviceType>
+class CombinedReduceFunctorManySameType {
+ public:
+  using size_type = int64_t;
+
+  const size_type nwork;
+
+  KOKKOS_INLINE_FUNCTION
+  constexpr explicit CombinedReduceFunctorManySameType(
+      const size_type& arg_nwork)
+      : nwork(arg_nwork) {}
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(size_type iwork, ValueType& dst1, ValueType& dst2,
+                  ValueType& dst3, ValueType& dst4, ValueType& dst5,
+                  ValueType& dst6, ValueType& dst7, ValueType& dst8,
+                  ValueType& dst9) const {
+    dst1 += 1;
+    dst2 += 2;
+    dst3 += 3;
+    dst4 += -1;
+    dst5 += -2;
+    dst6 += -3;
+    dst7 += iwork + 1;
+    dst8 += nwork - iwork;
+    dst9 += 0;
+  }
+};
+
 namespace {
 
 template <typename ScalarType, class DeviceType>

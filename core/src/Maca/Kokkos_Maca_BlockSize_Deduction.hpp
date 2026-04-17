@@ -31,6 +31,87 @@ unsigned maca_deduce_blocksize_with_occupancy(
     MacaInternal const *maca_instance, DynamicShmemFunctor const &dynamic_shmem,
     const bool early_termination);
 
+inline int maca_max_active_blocks_per_sm(macaDeviceProp_t const &properties,
+                                         macaFuncAttributes const &attributes,
+                                         int block_size,
+                                         size_t dynamic_shmem) {
+  int const regs_per_thread = attributes.numRegs;
+  int const allocated_regs_per_thread =
+      regs_per_thread == 0 ? 0 : 8 * ((regs_per_thread + 8 - 1) / 8);
+  int max_blocks_regs =
+      allocated_regs_per_thread == 0
+          ? properties.maxBlocksPerMultiProcessor
+          : properties.regsPerMultiprocessor /
+                (allocated_regs_per_thread * block_size);
+
+  size_t const total_shmem = attributes.sharedSizeBytes + dynamic_shmem;
+  size_t const max_dynamic_shmem_per_block =
+      attributes.maxDynamicSharedSizeBytes > 0
+          ? size_t(attributes.maxDynamicSharedSizeBytes)
+          : (attributes.sharedSizeBytes >= size_t(properties.sharedMemPerBlock)
+                 ? 0
+                 : size_t(properties.sharedMemPerBlock) -
+                       size_t(attributes.sharedSizeBytes));
+  int const max_blocks_shmem =
+      total_shmem > size_t(properties.sharedMemPerBlock) ||
+              dynamic_shmem > max_dynamic_shmem_per_block
+          ? 0
+          : (total_shmem > 0
+                 ? int(properties.sharedMemPerMultiprocessor / total_shmem)
+                 : max_blocks_regs);
+
+  return std::min({max_blocks_regs, max_blocks_shmem,
+                   properties.maxBlocksPerMultiProcessor});
+}
+
+template <typename DynamicShmemFunctor, typename LaunchBounds>
+inline int maca_deduce_block_size(bool early_termination,
+                                  macaDeviceProp_t const &properties,
+                                  macaFuncAttributes const &attributes,
+                                  DynamicShmemFunctor block_size_to_dynamic_shmem,
+                                  LaunchBounds) {
+  int const max_threads_per_sm = properties.maxThreadsPerMultiProcessor;
+  int const warp_size =
+      std::max(1, int(properties.warpSize > 0 ? properties.warpSize
+                                              : MacaTraits::WarpSize));
+  int max_threads_per_block =
+      std::min(LaunchBounds::maxTperB == 0 ? int(properties.maxThreadsPerBlock)
+                                           : int(LaunchBounds::maxTperB),
+               attributes.maxThreadsPerBlock);
+  max_threads_per_block = (max_threads_per_block / warp_size) * warp_size;
+  int const min_blocks_per_sm =
+      LaunchBounds::minBperSM == 0 ? 1 : LaunchBounds::minBperSM;
+
+  int opt_block_size     = 0;
+  int opt_threads_per_sm = 0;
+
+  for (int block_size = max_threads_per_block; block_size >= warp_size;
+       block_size -= warp_size) {
+    size_t const dynamic_shmem = block_size_to_dynamic_shmem(block_size);
+
+    int blocks_per_sm = maca_max_active_blocks_per_sm(
+        properties, attributes, block_size, dynamic_shmem);
+    int threads_per_sm = blocks_per_sm * block_size;
+
+    if (threads_per_sm > max_threads_per_sm) {
+      blocks_per_sm  = max_threads_per_sm / block_size;
+      threads_per_sm = blocks_per_sm * block_size;
+    }
+
+    if (blocks_per_sm >= min_blocks_per_sm) {
+      if ((threads_per_sm > opt_threads_per_sm) ||
+          ((block_size >= 128) && (threads_per_sm == opt_threads_per_sm))) {
+        opt_block_size     = block_size;
+        opt_threads_per_sm = threads_per_sm;
+      }
+    }
+
+    if (early_termination && opt_block_size != 0) break;
+  }
+
+  return opt_block_size;
+}
+
 template <typename DriverType, typename LaunchBounds = Kokkos::LaunchBounds<>,
           MacaLaunchMechanism LaunchMechanism =
               DeduceMacaLaunchMechanism<DriverType>::launch_mechanism>
@@ -396,6 +477,18 @@ unsigned maca_get_preferred_team_blocksize(MacaInternal const *maca_instance,
                                           ShmemTeamsFunctor const &f) {
   macaFuncAttributes attr = get_maca_func_attributes_impl<
       DriverType, LaunchBounds, BlockType::Preferred>(maca_instance->m_macaDev);
+  if (int const block_size = maca_deduce_block_size(
+          false, maca_instance->m_deviceProp, attr,
+          [&f, &attr](int block_size) {
+            size_t const total_shmem = f(attr, unsigned(block_size));
+            return total_shmem > size_t(attr.sharedSizeBytes)
+                       ? total_shmem - attr.sharedSizeBytes
+                       : 0;
+          },
+          LaunchBounds{});
+      block_size != 0) {
+    return unsigned(block_size);
+  }
   if (const unsigned occupancy_blocksize =
           maca_deduce_blocksize_with_occupancy<DriverType, LaunchBounds>(
               maca_instance,
@@ -406,7 +499,6 @@ unsigned maca_get_preferred_team_blocksize(MacaInternal const *maca_instance,
       occupancy_blocksize != 0) {
     return occupancy_blocksize;
   }
-  // get preferred blocksize limited by register usage
   const unsigned tperb_reg =
       maca_get_preferred_blocksize<DriverType, LaunchBounds>(
           maca_instance->m_macaDev);
@@ -465,7 +557,6 @@ unsigned maca_get_max_team_blocksize(MacaInternal const *maca_instance,
       occupancy_blocksize != 0) {
     return occupancy_blocksize;
   }
-  // get max blocksize
   const unsigned tperb_reg = maca_get_max_blocksize<DriverType, LaunchBounds>();
   return maca_internal_get_block_size<BlockType::Max, DriverType, LaunchBounds>(
       maca_instance, std::bind(f, attr, std::placeholders::_1), tperb_reg);

@@ -14,6 +14,16 @@
 namespace Kokkos {
 namespace Impl {
 
+inline int maca_range_reduce_block_count(std::size_t nwork, int block_size,
+                                         int concurrency) {
+  if (block_size <= 0 || concurrency <= 0) return 0;
+
+  return static_cast<int>(std::min<std::size_t>(
+      concurrency / static_cast<std::size_t>(block_size),
+      (nwork + static_cast<std::size_t>(block_size) - 1) /
+          static_cast<std::size_t>(block_size)));
+}
+
 template <class CombinedFunctorReducerType, class... Traits>
 class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
                      Kokkos::Maca> {
@@ -62,6 +72,7 @@ class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
   const bool m_result_ptr_host_accessible;
   word_size_type* m_scratch_space = nullptr;
   size_type* m_scratch_flags      = nullptr;
+  word_size_type* m_unified_space = nullptr;
 
   static constexpr bool UseShflReduction = false;
 
@@ -135,7 +146,7 @@ class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
       word_size_type* const global =
           m_result_ptr_device_accessible
               ? reinterpret_cast<word_size_type*>(m_result_ptr)
-              : m_scratch_space;
+              : (m_unified_space ? m_unified_space : m_scratch_space);
 
       if (threadIdx.y == 0) {
         reducer.final(reinterpret_cast<value_type*>(shared));
@@ -168,7 +179,8 @@ class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
       this->template exec_range<WorkTag>(iwork, value);
     }
 
-    pointer_type const result = reinterpret_cast<pointer_type>(m_scratch_space);
+    pointer_type const result = reinterpret_cast<pointer_type>(
+        m_unified_space ? m_unified_space : m_scratch_space);
 
     int max_active_thread = static_cast<int>(range.end() - range.begin()) <
                                     static_cast<int>(blockDim.y)
@@ -250,37 +262,9 @@ class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
 
       // REQUIRED ( 1 , N , 1 )
       dim3 block(1, block_size, 1);
-      // use a slightly less constrained, but still well bounded limit for
-      // scratch
-      index_type nblocks = (nwork + block.y - 1) / block.y;
-      // Heuristic deciding the value of nblocks.
-      // The general idea here is we want to:
-      //    1. Not undersubscribe the device (i.e., we want at least
-      //    preferred_block_min blocks)
-      //    2. Have each thread reduce > 1 value to minimize overheads
-      //    3. Limit the total # of blocks, to avoid unbounded scratch space
-      constexpr int block_max           = 4096;
-      constexpr int preferred_block_min = 1024;
-
-      if (nblocks < preferred_block_min) {
-        // keep blocks as is, already have low parallelism
-      } else if (nblocks > block_max) {
-        // "large dispatch" -> already have lots of parallelism
-        nblocks = block_max;
-      } else {
-        // in the intermediate range, try to have each thread process multiple
-        // items to offset the cost of the reduction (with not enough
-        // parallelism to hide it)
-        int items_per_thread =
-            (nwork + nblocks * block_size - 1) / (nblocks * block_size);
-        if (items_per_thread < 4) {
-          int ratio = std::min(
-              (nblocks + preferred_block_min - 1) / preferred_block_min,
-              static_cast<index_type>(4 + items_per_thread - 1) /
-                  items_per_thread);
-          nblocks /= ratio;
-        }
-      }
+      index_type nblocks = static_cast<index_type>(maca_range_reduce_block_count(
+          static_cast<std::size_t>(nwork), block_size,
+          m_policy.space().concurrency()));
 
       // TODO: down casting these uses more space than required?
       m_scratch_space =
@@ -290,6 +274,10 @@ class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
       // atomics in Kokkos_Maca_ReduceScan.hpp
       m_scratch_flags = ::Kokkos::Impl::maca_internal_scratch_flags(
           m_policy.space(), sizeof(size_type));
+      m_unified_space =
+          reinterpret_cast<word_size_type*>(
+              ::Kokkos::Impl::maca_internal_scratch_unified(
+                  m_policy.space(), reducer.value_size()));
       // Required grid.x <= block.y
       dim3 grid(nblocks, 1, 1);
 
@@ -310,9 +298,19 @@ class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
           false);  // copy to device and execute
 
       if (!m_result_ptr_device_accessible && m_result_ptr) {
-        const int size = reducer.value_size();
-        DeepCopy<HostSpace, MacaSpace, Maca>(m_policy.space(), m_result_ptr,
-                                           m_scratch_space, size);
+        if (m_unified_space) {
+          m_policy.space().fence(
+              "Kokkos::Impl::ParallelReduce<Maca, RangePolicy>::execute: "
+              "Result Not Device Accessible");
+          const int count = reducer.value_count();
+          for (int i = 0; i < count; ++i) {
+            m_result_ptr[i] = pointer_type(m_unified_space)[i];
+          }
+        } else {
+          const int size = reducer.value_size();
+          DeepCopy<HostSpace, MacaSpace, Maca>(m_policy.space(), m_result_ptr,
+                                               m_scratch_space, size);
+        }
       }
     } else {
       if (m_result_ptr) {

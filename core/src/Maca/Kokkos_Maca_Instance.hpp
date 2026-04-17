@@ -60,6 +60,8 @@ Maca::size_type *maca_internal_scratch_space(const Maca &instance,
                                            const std::size_t size);
 Maca::size_type *maca_internal_scratch_flags(const Maca &instance,
                                            const std::size_t size);
+Maca::size_type *maca_internal_scratch_unified(const Maca &instance,
+                                             const std::size_t size);
 
 //----------------------------------------------------------------------------
 
@@ -179,9 +181,11 @@ class MacaInternal {
   // Scratch Spaces for Reductions
   std::size_t m_scratchSpaceCount = 0;
   std::size_t m_scratchFlagsCount = 0;
+  std::size_t m_scratchUnifiedCount = 0;
 
   size_type *m_scratchSpace               = nullptr;
   size_type *m_scratchFlags               = nullptr;
+  size_type *m_scratchUnified             = nullptr;
   mutable std::array<ScratchFunctorSlot, scratch_functor_slot_count>
       m_scratchFunctorSlots = {};
   mutable unsigned m_nextScratchFunctorSlot = 0;
@@ -362,6 +366,7 @@ class MacaInternal {
   // Resizing of reduction related scratch spaces
   size_type *scratch_space(std::size_t const size);
   size_type *scratch_flags(std::size_t const size);
+  size_type *scratch_unified(std::size_t const size);
   size_type *stage_functor_for_execution(void const *driver,
                                          std::size_t const size) const;
   void mark_functor_for_execution(void const *driver_ptr) const;

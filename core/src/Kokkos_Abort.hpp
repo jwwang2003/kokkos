@@ -65,9 +65,9 @@ namespace Impl {
 #define KOKKOS_IMPL_ABORT_NORETURN_DEVICE KOKKOS_IMPL_ABORT_NORETURN
 #endif
 
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) ||     \
-    defined(KOKKOS_ENABLE_MACA) || defined(KOKKOS_ENABLE_SYCL) ||    \
-    defined(KOKKOS_ENABLE_OPENACC) || defined(KOKKOS_ENABLE_NEXTSILICON)
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) ||  \
+    defined(KOKKOS_ENABLE_MACA) || defined(KOKKOS_ENABLE_SYCL) || \
+    defined(KOKKOS_ENABLE_OPENACC)
 KOKKOS_IMPL_ABORT_NORETURN_DEVICE inline KOKKOS_IMPL_DEVICE_FUNCTION void
 device_abort(const char *const msg) {
 #if defined(KOKKOS_ENABLE_CUDA)
