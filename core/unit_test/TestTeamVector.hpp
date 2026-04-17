@@ -798,13 +798,6 @@ class TestTripleNestedReduce {
 
   void run_test(const size_type &nrows, const size_type &ncols, int team_size,
                 const size_type &vector_length) {
-    int const max_team_size =
-        Kokkos::TeamPolicy<execution_space>(1, 1).team_size_max(
-            KOKKOS_LAMBDA(
-                typename Kokkos::TeamPolicy<execution_space>::member_type){},
-            Kokkos::ParallelForTag{});
-    if (team_size > max_team_size) team_size = max_team_size;
-
 #ifdef KOKKOS_ENABLE_HPX
     team_size = 1;
     if (!std::is_same_v<execution_space, Kokkos::Experimental::HPX>) {
@@ -849,8 +842,7 @@ class TestTripleNestedReduce {
     // Three level parallelism kernel to force caching of vector x.
     ScalarType result = 0.0;
     int chunk_size    = 128;
-    Kokkos::parallel_reduce(
-        team_policy(nrows / chunk_size, team_size, vector_length),
+    auto reduce_functor =
         KOKKOS_LAMBDA(const member_type &teamMember, double &update) {
           const int row_start = teamMember.league_rank() * chunk_size;
           const int row_end   = row_start + chunk_size;
@@ -867,8 +859,15 @@ class TestTripleNestedReduce {
                 Kokkos::single(Kokkos::PerThread(teamMember),
                                [&]() { update += y(i) * sum_i; });
               });
-        },
-        result);
+        };
+    int const max_team_size =
+        team_policy(1, 1, vector_length)
+            .team_size_max(reduce_functor, Kokkos::ParallelReduceTag{});
+    if (team_size > max_team_size) team_size = max_team_size;
+
+    Kokkos::parallel_reduce(
+        team_policy(nrows / chunk_size, team_size, vector_length),
+        reduce_functor, result);
     Kokkos::fence();
 
     const ScalarType solution = (ScalarType)nrows * (ScalarType)ncols;
