@@ -36,6 +36,10 @@ struct MacaManagedMemorySupport {
   bool hmm_mirror_enabled_in_kernel_config = false;
   bool xnack_enabled_in_environment      = false;
 
+  constexpr bool managed_memory_supported() const {
+    return has_managed_memory_attribute;
+  }
+
   constexpr bool page_migration_supported() const {
     return has_managed_memory_attribute && has_pageable_memory_access;
   }

@@ -9,6 +9,9 @@ import kokkos.core_impl;
 #include <Kokkos_Core.hpp>
 #endif
 #include <impl/Kokkos_ClockTic.hpp>
+#if defined(KOKKOS_ENABLE_MACA)
+#include <Maca/Kokkos_Maca_Space.hpp>
+#endif
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -109,6 +112,15 @@ TEST(defaultdevicetype, shared_space) {
   GTEST_SKIP() << "skipping because clock_tic is only defined for sycl+intel "
                   "gpu and with rdc support";
 #endif
+#if defined(KOKKOS_ENABLE_MACA)
+  if (!Kokkos::Impl::query_maca_managed_memory_support(
+           Kokkos::DefaultExecutionSpace{}.maca_device())
+           .managed_memory_supported()) {
+    GTEST_SKIP()
+        << "skipping because MACA managed memory is not supported on this "
+           "system";
+  }
+#endif
 #if defined(KOKKOS_ENABLE_DEBUG)
   GTEST_SKIP()
       << "skipping due to spurious failures when compiling in Debug mode";
@@ -168,6 +180,12 @@ TEST(defaultdevicetype, shared_space) {
     // COMPUTE STATISTICS OF HOST AND DEVICE LOCAL KERNELS
     deviceLocalMean = computeMean(deviceLocalTimings);
     hostLocalMean   = computeMean(hostLocalTimings);
+    auto const deviceThreshold =
+        deviceLocalMean > 0 ? threshold * deviceLocalMean
+                            : (std::numeric_limits<double>::max)();
+    auto const hostThreshold =
+        hostLocalMean > 0 ? threshold * hostLocalMean
+                          : (std::numeric_limits<double>::max)();
 
     // ASSESS RESULTS
     fastAsLocalOnRepeatedAccess = true;
@@ -176,16 +194,16 @@ TEST(defaultdevicetype, shared_space) {
       std::for_each(std::next(deviceSharedTimings[cycle].begin()),
                     deviceSharedTimings[cycle].end(),
                     [&](const uint64_t timing) {
-                      (timing < threshold * deviceLocalMean)
-                          ? fastAsLocalOnRepeatedAccess &= true
-                          : fastAsLocalOnRepeatedAccess &= false;
+                      if (deviceLocalMean > 0) {
+                        fastAsLocalOnRepeatedAccess &= timing < deviceThreshold;
+                      }
                     });
 
       std::for_each(std::next(hostSharedTimings[cycle].begin()),
                     hostSharedTimings[cycle].end(), [&](const uint64_t timing) {
-                      (timing < threshold * hostLocalMean)
-                          ? fastAsLocalOnRepeatedAccess &= true
-                          : fastAsLocalOnRepeatedAccess &= false;
+                      if (hostLocalMean > 0) {
+                        fastAsLocalOnRepeatedAccess &= timing < hostThreshold;
+                      }
                     });
     }
 
@@ -219,10 +237,12 @@ TEST(defaultdevicetype, shared_space) {
     for (unsigned cycle = 0; cycle < numDeviceHostCycles; ++cycle) {
       std::cout << "DeviceExecutionSpace timings of run " << cycle << ":\n";
       printTimings(std::cout, deviceSharedTimings[cycle],
-                   threshold * deviceLocalMean);
+                   deviceLocalMean > 0 ? threshold * deviceLocalMean
+                                       : (std::numeric_limits<uint64_t>::max)());
       std::cout << "HostExecutionSpace timings of run " << cycle << ":\n";
       printTimings(std::cout, hostSharedTimings[cycle],
-                   threshold * hostLocalMean);
+                   hostLocalMean > 0 ? threshold * hostLocalMean
+                                     : (std::numeric_limits<uint64_t>::max)());
     }
     std::cout << "################LOCAL SPACE####################\n";
     printTimings(std::cout, deviceLocalTimings);

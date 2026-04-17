@@ -198,10 +198,30 @@ void* MacaManagedSpace::impl_allocate(
         Kokkos::show_warnings()) {
       auto const support =
           Kokkos::Impl::query_maca_managed_memory_support(m_device);
-      if (!support.fully_supported()) {
+      if (!support.managed_memory_supported()) {
         std::cerr
             << "Kokkos::Maca::allocation WARNING: MacaManagedSpace is not "
-               "fully supported on this system.\n"
+               "supported on this system.\n"
+            << "                                 "
+               "macaDeviceAttributeManagedMemory: "
+            << support.has_managed_memory_attribute << '\n'
+            << "                                 "
+               "macaDeviceAttributePageableMemoryAccess: "
+            << support.has_pageable_memory_access << '\n'
+            << "                                 "
+               "gpu_arch_can_access_system_memory: "
+            << support.gpu_arch_can_access_system_memory << '\n'
+            << "                                 "
+               "kernel_hmm_mirror_enabled: "
+            << support.hmm_mirror_enabled_in_kernel_config << '\n'
+            << "                                 "
+               "xnack_enabled_in_environment: "
+            << support.xnack_enabled_in_environment << '\n';
+      } else if (!support.fully_supported()) {
+        std::cerr
+            << "Kokkos::Maca::allocation WARNING: MacaManagedSpace is "
+               "available on this system, but stronger pageable/concurrent "
+               "managed-memory capabilities are limited.\n"
             << "                                 "
                "macaDeviceAttributeManagedMemory: "
             << support.has_managed_memory_attribute << '\n'
