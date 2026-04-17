@@ -151,6 +151,17 @@ foreach(Tag Threads;Serial;OpenMP;Cuda;HPX;OpenACC;HIP;Maca;SYCL)
       list(APPEND ${Tag}_SOURCES1A ${file})
     endforeach()
 
+    if(Tag STREQUAL Serial AND KOKKOS_CXX_COMPILER_ID STREQUAL MXCC)
+      # mxcc currently miscompiles the host-only Serial atomic float/double
+      # tests. Keep the rest of the Serial and MACA coverage enabled.
+      list(
+        REMOVE_ITEM
+        ${Tag}_SOURCES1A
+        ${CMAKE_CURRENT_BINARY_DIR}/serial/TestSerial_AtomicOperations_double.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/serial/TestSerial_AtomicOperations_float.cpp
+      )
+    endif()
+
     set(${Tag}_SOURCES1B)
     set(${Tag}_TESTNAMES1B
         MDRange_a
