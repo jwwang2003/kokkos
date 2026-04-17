@@ -1,4 +1,4 @@
-if(NOT Kokkos_ENABLE_MACA AND NOT (Kokkos_ENABLE_CUDA AND WIN32))
+if(NOT (Kokkos_ENABLE_CUDA AND WIN32))
   # Keep perf benchmark coverage aligned with the supported SIMD test matrix.
   kokkos_include_directories(REQUIRED_DURING_INSTALLATION_TESTING ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
