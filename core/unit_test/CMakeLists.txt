@@ -668,6 +668,9 @@ if(Kokkos_ENABLE_MACA)
     maca/TestMaca_TeamCollectives.cpp
     maca/TestMaca_LaunchTuning.cpp
   )
+  kokkos_add_executable_and_test(
+    CoreUnitTest_MacaInterOpGraph SOURCES UnitTestMainInit.cpp maca/TestMaca_InterOp_Graph.cpp
+  )
 endif()
 
 if(Kokkos_ENABLE_SYCL)

@@ -101,12 +101,16 @@ class GraphNodeKernelImpl<Kokkos::Maca, PolicyType, Functor, PatternTag, Args...
     KOKKOS_EXPECTS(m_driver_storage == nullptr);
     std::string alloc_label =
         label + " - GraphNodeKernel global memory functor storage";
+    auto alloc_space = MacaSpace::impl_create(exec.maca_device(),
+                                              exec.maca_stream());
     m_driver_storage = std::shared_ptr<base_t>(
         static_cast<base_t*>(
             MacaSpace().allocate(exec, alloc_label.c_str(), sizeof(base_t))),
-        // FIXME_MACA Custom deleter should use same 'exec' as for allocation.
-        [alloc_label](base_t* ptr) {
-          MacaSpace().deallocate(alloc_label.c_str(), ptr, sizeof(base_t));
+        // MACA allocation and deallocation must use the same device/stream
+        // identity because the runtime binds subsequent API calls to the
+        // current thread's selected device.
+        [alloc_label, alloc_space](base_t* ptr) {
+          alloc_space.deallocate(alloc_label.c_str(), ptr, sizeof(base_t));
         });
     KOKKOS_ENSURES(m_driver_storage != nullptr);
     return m_driver_storage.get();

@@ -203,6 +203,18 @@ TEST(kokkosp, test_id_gen) {
   });
 }
 
+TEST(kokkosp, test_device_type_numeric_stability) {
+  using Kokkos::Tools::Experimental::DeviceType;
+
+  EXPECT_EQ(static_cast<uint32_t>(DeviceType::Cuda), 2u);
+  EXPECT_EQ(static_cast<uint32_t>(DeviceType::HIP), 3u);
+  EXPECT_EQ(static_cast<uint32_t>(DeviceType::HPX), 6u);
+  EXPECT_EQ(static_cast<uint32_t>(DeviceType::Threads), 7u);
+  EXPECT_EQ(static_cast<uint32_t>(DeviceType::SYCL), 8u);
+  EXPECT_EQ(static_cast<uint32_t>(DeviceType::OpenACC), 9u);
+  EXPECT_EQ(static_cast<uint32_t>(DeviceType::Maca), 10u);
+}
+
 /**
  * Test that fencing and kernels yield events on the correct device ID's
  */

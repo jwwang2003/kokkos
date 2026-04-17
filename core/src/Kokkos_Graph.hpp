@@ -194,7 +194,7 @@ decltype(auto) Graph<ExecutionSpace>::native_graph() {
   }
 #elif defined(KOKKOS_ENABLE_MACA)
   if constexpr (std::is_same_v<ExecutionSpace, Kokkos::Maca>) {
-    return m_impl_ptr->hip_graph();
+    return m_impl_ptr->maca_graph();
   }
 #elif defined(KOKKOS_ENABLE_SYCL) && defined(KOKKOS_IMPL_SYCL_GRAPH_SUPPORT)
   if constexpr (std::is_same_v<ExecutionSpace, Kokkos::SYCL>) {
@@ -216,7 +216,7 @@ decltype(auto) Graph<ExecutionSpace>::native_graph_exec() {
   }
 #elif defined(KOKKOS_ENABLE_MACA)
   if constexpr (std::is_same_v<ExecutionSpace, Kokkos::Maca>) {
-    return m_impl_ptr->hip_graph_exec();
+    return m_impl_ptr->maca_graph_exec();
   }
 #elif defined(KOKKOS_ENABLE_SYCL) && defined(KOKKOS_IMPL_SYCL_GRAPH_SUPPORT)
   if constexpr (std::is_same_v<ExecutionSpace, Kokkos::SYCL>) {
