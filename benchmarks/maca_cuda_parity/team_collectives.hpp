@@ -15,6 +15,7 @@
 
 namespace MacaCudaParity {
 
+#if defined(KOKKOS_ENABLE_MACA)
 template <class ViewType>
 struct TeamCollectiveBenchmarkFunctor {
   using execution_space = Kokkos::Maca;
@@ -50,6 +51,7 @@ struct TeamCollectiveBenchmarkFunctor {
     }
   }
 };
+#endif
 
 inline int run_team_collective_benchmark(std::string_view subtest, int argc,
                                          char* argv[]) {

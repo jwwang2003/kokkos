@@ -14,6 +14,7 @@
 
 namespace MacaCudaParity {
 
+#if defined(KOKKOS_ENABLE_MACA)
 struct LaunchTuningBenchmarkFunctor {
   using execution_space = Kokkos::Maca;
   using policy_type     = Kokkos::TeamPolicy<execution_space>;
@@ -47,6 +48,7 @@ struct LaunchTuningBenchmarkFunctor {
                    [&]() { sink(team.league_rank()) = team_total; });
   }
 };
+#endif
 
 inline int run_launch_tuning_benchmark(int argc, char* argv[]) {
 #if !defined(KOKKOS_ENABLE_MACA)
