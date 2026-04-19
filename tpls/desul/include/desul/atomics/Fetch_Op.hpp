@@ -20,6 +20,9 @@ SPDX-License-Identifier: (BSD-3-Clause)
 #ifdef DESUL_HAVE_HIP_ATOMICS
 #include <desul/atomics/Fetch_Op_HIP.hpp>
 #endif
+#ifdef DESUL_HAVE_MACA_ATOMICS
+#include <desul/atomics/Fetch_Op_MACA.hpp>
+#endif
 #ifdef DESUL_HAVE_OPENMP_ATOMICS
 #include <desul/atomics/Fetch_Op_OpenMP.hpp>
 #endif

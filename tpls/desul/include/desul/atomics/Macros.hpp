@@ -39,6 +39,15 @@ SPDX-License-Identifier: (BSD-3-Clause)
 #endif
 #endif
 
+#ifdef DESUL_ATOMICS_ENABLE_MACA
+#if (defined(DESUL_ATOMICS_ENABLE_MACA_SEPARABLE_COMPILATION) &&  \
+     !defined(__CLANG_RDC__)) ||                                  \
+    (!defined(DESUL_ATOMICS_ENABLE_MACA_SEPARABLE_COMPILATION) && \
+     defined(__CLANG_RDC__))
+#error Relocatable device code mode incompatible with desul atomics configuration
+#endif
+#endif
+
 // Macros
 
 #if defined(DESUL_ATOMICS_ENABLE_CUDA) && defined(__CUDACC__)
@@ -47,6 +56,10 @@ SPDX-License-Identifier: (BSD-3-Clause)
 
 #if defined(DESUL_ATOMICS_ENABLE_HIP) && defined(__HIPCC__)
 #define DESUL_HAVE_HIP_ATOMICS
+#endif
+
+#if defined(DESUL_ATOMICS_ENABLE_MACA) && defined(__MACACC__)
+#define DESUL_HAVE_MACA_ATOMICS
 #endif
 
 #if defined(DESUL_ATOMICS_ENABLE_SYCL) && defined(SYCL_LANGUAGE_VERSION)
@@ -71,7 +84,8 @@ SPDX-License-Identifier: (BSD-3-Clause)
 #define DESUL_HAVE_MSVC_ATOMICS
 #endif
 
-#if defined(DESUL_HAVE_CUDA_ATOMICS) || defined(DESUL_HAVE_HIP_ATOMICS)
+#if defined(DESUL_HAVE_CUDA_ATOMICS) || defined(DESUL_HAVE_HIP_ATOMICS) || \
+    defined(DESUL_HAVE_MACA_ATOMICS)
 #define DESUL_FORCEINLINE_FUNCTION inline __host__ __device__
 #define DESUL_INLINE_FUNCTION inline __host__ __device__
 #define DESUL_FUNCTION __host__ __device__
@@ -154,7 +168,7 @@ static constexpr bool desul_impl_omp_on_host() { return false; }
 #if !defined(DESUL_IF_ON_HOST) && !defined(DESUL_IF_ON_DEVICE)
 #if (defined(DESUL_ATOMICS_ENABLE_CUDA) && defined(__CUDA_ARCH__)) ||         \
     (defined(DESUL_ATOMICS_ENABLE_HIP) && defined(__HIP_DEVICE_COMPILE__)) || \
-    (defined(DESUL_ATOMICS_ENABLE_HIP) && defined(__MACA_ARCH__)) ||          \
+    (defined(DESUL_ATOMICS_ENABLE_MACA) && defined(__MACA_ARCH__)) ||         \
     (defined(DESUL_ATOMICS_ENABLE_SYCL) && defined(__SYCL_DEVICE_ONLY__))
 #define DESUL_IF_ON_DEVICE(CODE) \
   { DESUL_IMPL_STRIP_PARENS(CODE) }
