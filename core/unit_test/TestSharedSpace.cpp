@@ -115,10 +115,10 @@ TEST(defaultdevicetype, shared_space) {
 #if defined(KOKKOS_ENABLE_MACA)
   if (!Kokkos::Impl::query_maca_managed_memory_support(
            Kokkos::DefaultExecutionSpace{}.maca_device())
-           .managed_memory_supported()) {
+           .fully_supported()) {
     GTEST_SKIP()
-        << "skipping because MACA managed memory is not supported on this "
-           "system";
+        << "skipping because MACA managed memory is not fully supported on "
+           "this system";
   }
 #endif
 #if defined(KOKKOS_ENABLE_DEBUG)

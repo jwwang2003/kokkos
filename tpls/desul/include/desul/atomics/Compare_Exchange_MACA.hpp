@@ -192,7 +192,8 @@ __device__ std::enable_if_t<device_atomic_always_lock_free<T>, T> device_atomic_
 template <class T, class MemoryOrder, class MemoryScope>
 __device__ std::enable_if_t<device_atomic_always_lock_free<T>, void>
 device_atomic_store(T* const dest, const T val, MemoryOrder order, MemoryScope) {
-  __atomic_store(dest, &val, MACAMemoryOrder<MemoryOrder>::value);
+  T value = val;
+  __atomic_store(dest, &value, MACAMemoryOrder<MemoryOrder>::value);
 }
 
 template <class T, class MemoryOrder, class MemoryScope>
