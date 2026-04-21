@@ -42,6 +42,7 @@ kokkos_enable_option(DEPRECATED_CODE_4 OFF "Whether code deprecated in major rel
 kokkos_enable_option(DEPRECATED_CODE_5 ON "Whether code deprecated in major release 5 is available")
 kokkos_enable_option(DEPRECATION_WARNINGS ON "Whether to emit deprecation warnings")
 kokkos_enable_option(HIP_RELOCATABLE_DEVICE_CODE OFF "Whether to enable relocatable device code (RDC) for HIP")
+kokkos_enable_option(MACA_RELOCATABLE_DEVICE_CODE OFF "Whether to enable relocatable device code (RDC) for Maca")
 
 # Disabling RDC only works properly since oneAPI 2024.1.0
 if(KOKKOS_ENABLE_SYCL AND KOKKOS_CXX_COMPILER_ID STREQUAL IntelLLVM AND KOKKOS_CXX_COMPILER_VERSION VERSION_LESS
@@ -115,6 +116,8 @@ else()
   set(HIP_MALLOC_ASYNC_DEFAULT ${KOKKOS_ENABLE_HIP})
 endif()
 kokkos_enable_option(IMPL_HIP_MALLOC_ASYNC ${HIP_MALLOC_ASYNC_DEFAULT} "Whether to enable hipMallocAsync")
+kokkos_enable_option(IMPL_MACA_MALLOC_ASYNC ${KOKKOS_ENABLE_MACA} "Whether to enable mcMallocAsync")
+kokkos_enable_option(IMPL_MACA_UNIFIED_MEMORY ${KOKKOS_ENABLE_MACA} "Whether to enable managed/unified memory support for Maca")
 if((hip_VERSION VERSION_GREATER_EQUAL 7.0.0) AND Kokkos_ENABLE_IMPL_HIP_MALLOC_ASYNC)
   message(WARNING "Using Kokkos_ENABLE_IMPL_HIP_MALLOC_ASYNC is problematic with ROCm 7")
 endif()
@@ -235,6 +238,9 @@ check_device_specific_options(
 )
 check_device_specific_options(
   DEVICE HIP OPTIONS HIP_RELOCATABLE_DEVICE_CODE HIP_MULTIPLE_KERNEL_INSTANTIATIONS IMPL_HIP_MALLOC_ASYNC
+)
+check_device_specific_options(
+  DEVICE MACA OPTIONS MACA_RELOCATABLE_DEVICE_CODE IMPL_MACA_MALLOC_ASYNC IMPL_MACA_UNIFIED_MEMORY
 )
 check_device_specific_options(DEVICE HPX OPTIONS IMPL_HPX_ASYNC_DISPATCH)
 check_device_specific_options(DEVICE OPENACC OPTIONS OPENACC_FORCE_HOST_AS_DEVICE)

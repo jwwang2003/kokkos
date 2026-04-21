@@ -1,0 +1,3 @@
+[submodule "3rdParty/cu-bridge"]
+	path = 3rdParty/cu-bridge
+	url = https://gitee.com/metax-maca/cu-bridge.git

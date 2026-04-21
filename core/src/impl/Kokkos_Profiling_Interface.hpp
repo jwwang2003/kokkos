@@ -24,17 +24,18 @@ enum SpecialSynchronizationCases : int {
   DeepCopyResourceSynchronization = 2,
 };
 
-enum struct DeviceType {
-  Serial,
-  OpenMP,
-  Cuda,
-  HIP,
-  OpenMPTarget,  // removed
-  HPX,
-  Threads,
-  SYCL,
-  OpenACC,
-  Unknown
+enum struct DeviceType : uint32_t {
+  Serial        = 0,
+  OpenMP        = 1,
+  Cuda          = 2,
+  HIP           = 3,
+  OpenMPTarget  = 5,  // removed
+  HPX           = 6,
+  Threads       = 7,
+  SYCL          = 8,
+  OpenACC       = 9,
+  Maca          = 10,
+  Unknown       = 0xff
 };
 
 struct ExecutionSpaceIdentifier {
@@ -54,11 +55,12 @@ inline DeviceType devicetype_from_uint32t(const uint32_t in) {
     case 1: return DeviceType::OpenMP;
     case 2: return DeviceType::Cuda;
     case 3: return DeviceType::HIP;
-    case 4: return DeviceType::OpenMPTarget;  // removed
-    case 5: return DeviceType::HPX;
-    case 6: return DeviceType::Threads;
-    case 7: return DeviceType::SYCL;
-    case 8: return DeviceType::OpenACC;
+    case 5: return DeviceType::OpenMPTarget;  // removed
+    case 6: return DeviceType::HPX;
+    case 7: return DeviceType::Threads;
+    case 8: return DeviceType::SYCL;
+    case 9: return DeviceType::OpenACC;
+    case 10: return DeviceType::Maca;
     default: return DeviceType::Unknown;  // TODO: error out?
   }
 }

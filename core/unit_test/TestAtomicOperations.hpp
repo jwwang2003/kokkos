@@ -16,6 +16,38 @@ import kokkos.core;
 
 namespace TestAtomicOperations {
 
+#ifdef KOKKOS_ENABLE_MACA
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeSystem>::value ==
+    memory_scope_system);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeNode>::value ==
+    memory_scope_system);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeDevice>::value ==
+    memory_scope_device);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeCore>::value ==
+    memory_scope_block);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeCaller>::value ==
+    memory_scope_single_thread);
+#endif
+
+template <class T>
+KOKKOS_FUNCTION T atomic_fetch_inc_mod_compat(T* ptr, T wrap_value) {
+  return desul::atomic_fetch_inc_mod(ptr, wrap_value,
+                                     desul::MemoryOrderRelaxed(),
+                                     desul::MemoryScopeDevice());
+}
+
+template <class T>
+KOKKOS_FUNCTION T atomic_fetch_dec_mod_compat(T* ptr, T wrap_value) {
+  return desul::atomic_fetch_dec_mod(ptr, wrap_value,
+                                     desul::MemoryOrderRelaxed(),
+                                     desul::MemoryScopeDevice());
+}
+
 struct AddAtomicTest {
   template <class T>
   KOKKOS_FUNCTION static auto atomic_op(T* ptr_op, T* ptr_fetch_op,
@@ -334,17 +366,9 @@ struct IncModAtomicTest {
   template <class T>
   KOKKOS_FUNCTION static auto atomic_op(T* ptr_op, T* ptr_fetch_op,
                                         T* ptr_op_fetch, T wrap_value) {
-    // no atomic_inc_mod in desul
-    (void)desul::atomic_fetch_inc_mod(ptr_op, wrap_value,
-                                      desul::MemoryOrderRelaxed(),
-                                      desul::MemoryScopeDevice());
-    T old_val = desul::atomic_fetch_inc_mod(ptr_fetch_op, wrap_value,
-                                            desul::MemoryOrderRelaxed(),
-                                            desul::MemoryScopeDevice());
-    // no atomic_inc_mod_fetch in desul
-    (void)desul::atomic_fetch_inc_mod(ptr_op_fetch, wrap_value,
-                                      desul::MemoryOrderRelaxed(),
-                                      desul::MemoryScopeDevice());
+    (void)atomic_fetch_inc_mod_compat(ptr_op, wrap_value);
+    T old_val = atomic_fetch_inc_mod_compat(ptr_fetch_op, wrap_value);
+    (void)atomic_fetch_inc_mod_compat(ptr_op_fetch, wrap_value);
     T new_val = op(old_val, wrap_value);
     return Kokkos::pair<T, T>(old_val, new_val);
   }
@@ -359,17 +383,9 @@ struct DecModAtomicTest {
   template <class T>
   KOKKOS_FUNCTION static auto atomic_op(T* ptr_op, T* ptr_fetch_op,
                                         T* ptr_op_fetch, T wrap_value) {
-    // no atomic_dec_mod in desul
-    (void)desul::atomic_fetch_dec_mod(ptr_op, wrap_value,
-                                      desul::MemoryOrderRelaxed(),
-                                      desul::MemoryScopeDevice());
-    T old_val = desul::atomic_fetch_dec_mod(ptr_fetch_op, wrap_value,
-                                            desul::MemoryOrderRelaxed(),
-                                            desul::MemoryScopeDevice());
-    // no atomic_dec_mod_fetch in desul
-    (void)desul::atomic_fetch_dec_mod(ptr_op_fetch, wrap_value,
-                                      desul::MemoryOrderRelaxed(),
-                                      desul::MemoryScopeDevice());
+    (void)atomic_fetch_dec_mod_compat(ptr_op, wrap_value);
+    T old_val = atomic_fetch_dec_mod_compat(ptr_fetch_op, wrap_value);
+    (void)atomic_fetch_dec_mod_compat(ptr_op_fetch, wrap_value);
     T new_val = op(old_val, wrap_value);
     return Kokkos::pair<T, T>(old_val, new_val);
   }

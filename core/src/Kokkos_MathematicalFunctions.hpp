@@ -569,7 +569,7 @@ KOKKOS_IMPL_MATH_UNARY_FUNCTION(sqrt)
 KOKKOS_IMPL_MATH_UNARY_FUNCTION(cbrt)
 KOKKOS_IMPL_MATH_BINARY_FUNCTION(hypot)
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || \
-    defined(KOKKOS_ENABLE_SYCL)
+    defined(KOKKOS_ENABLE_SYCL) || defined(KOKKOS_ENABLE_MACA)
 KOKKOS_INLINE_FUNCTION float hypot(float x, float y, float z) {
   return sqrt(x * x + y * y + z * z);
 }

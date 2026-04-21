@@ -172,6 +172,17 @@ struct ForSpace<Kokkos::HIP> {
 };
 #endif
 
+#ifdef KOKKOS_ENABLE_MACA
+template <>
+struct ForSpace<Kokkos::Maca> {
+  template <class T>
+  using type = scalar;
+
+  template <typename T, Experimental::Impl::simd_size_t N>
+  using simd_abi = scalar;
+};
+#endif
+
 #ifdef KOKKOS_ENABLE_SYCL
 template <>
 struct ForSpace<Kokkos::SYCL> {

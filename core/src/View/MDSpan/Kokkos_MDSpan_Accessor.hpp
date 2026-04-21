@@ -9,6 +9,7 @@ static_assert(false,
 #ifndef KOKKOS_MDSPAN_ACCESSOR_HPP
 #define KOKKOS_MDSPAN_ACCESSOR_HPP
 
+#include <Kokkos_Atomic.hpp>
 #include <Kokkos_Macros.hpp>
 #include <Kokkos_Concepts.hpp>
 #include <Kokkos_Core_fwd.hpp>
@@ -183,11 +184,271 @@ struct SpaceAwareAccessor<AnonymousSpace, NestedAccessor> {
 
 // Like atomic_accessor_relaxed proposed for ISO C++26 but with
 // defaulted memory scope - similar to how desul's AtomicRef has a memory scope
-template <class ElementType, class MemoryScope = desul::MemoryScopeDevice>
+template <class ElementType>
+class KokkosAtomicAccessorRef {
+  using value_type_no_cv = std::remove_cv_t<ElementType>;
+
+  ElementType* ptr_;
+
+  KOKKOS_INLINE_FUNCTION
+  value_type_no_cv* mutable_ptr() const noexcept {
+    return const_cast<value_type_no_cv*>(ptr_);
+  }
+
+ public:
+  using value_type = value_type_no_cv;
+
+  KOKKOS_INLINE_FUNCTION
+  explicit KokkosAtomicAccessorRef(ElementType& obj) : ptr_(&obj) {}
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator=(value_type desired) const noexcept {
+    Kokkos::atomic_store(mutable_ptr(), desired);
+    return desired;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  operator value_type() const noexcept { return Kokkos::atomic_load(ptr_); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type load() const noexcept { return Kokkos::atomic_load(ptr_); }
+
+  KOKKOS_INLINE_FUNCTION
+  void store(value_type desired) const noexcept {
+    Kokkos::atomic_store(mutable_ptr(), desired);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type exchange(value_type desired) const noexcept {
+    return Kokkos::atomic_exchange(mutable_ptr(), desired);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_add(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_add(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type add_fetch(value_type arg) const noexcept {
+    return fetch_add(arg) + arg;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_sub(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_sub(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_min(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_min(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type min_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_min_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_max(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_max(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type max_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_max_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_mul(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_mul(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type mul_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_mul_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_div(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_div(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type div_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_div_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_mod(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_mod(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type mod_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_mod_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_and(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_and(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type and_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_and_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_or(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_or(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type or_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_or_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_xor(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_xor(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type xor_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_xor_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_nand(value_type arg) const noexcept {
+    return Kokkos::atomic_fetch_nand(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type nand_fetch(value_type arg) const noexcept {
+    return Kokkos::atomic_nand_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_lshift(unsigned int arg) const noexcept {
+    return Kokkos::atomic_fetch_lshift(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type lshift_fetch(unsigned int arg) const noexcept {
+    return Kokkos::atomic_lshift_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_rshift(unsigned int arg) const noexcept {
+    return Kokkos::atomic_fetch_rshift(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type rshift_fetch(unsigned int arg) const noexcept {
+    return Kokkos::atomic_rshift_fetch(mutable_ptr(), arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_inc() const noexcept {
+    return Kokkos::atomic_fetch_inc(mutable_ptr());
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type inc_fetch() const noexcept { return fetch_inc() + value_type(1); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type fetch_dec() const noexcept {
+    return Kokkos::atomic_fetch_dec(mutable_ptr());
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type dec_fetch() const noexcept { return fetch_dec() - value_type(1); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type sub_fetch(value_type arg) const noexcept {
+    return fetch_sub(arg) - arg;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator+=(value_type arg) const noexcept {
+    return add_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator-=(value_type arg) const noexcept {
+    return sub_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator*=(value_type arg) const noexcept {
+    return mul_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator/=(value_type arg) const noexcept {
+    return div_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator%=(value_type arg) const noexcept {
+    return mod_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator&=(value_type arg) const noexcept {
+    return and_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator|=(value_type arg) const noexcept {
+    return or_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator^=(value_type arg) const noexcept {
+    return xor_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator<<=(unsigned int arg) const noexcept {
+    return lshift_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator>>=(unsigned int arg) const noexcept {
+    return rshift_fetch(arg);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator++() const noexcept { return inc_fetch(); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator++(int) const noexcept { return fetch_inc(); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator--() const noexcept { return dec_fetch(); }
+
+  KOKKOS_INLINE_FUNCTION
+  value_type operator--(int) const noexcept { return fetch_dec(); }
+};
+
+template <class ElementType, class MemorySpace,
+          class MemoryScope = desul::MemoryScopeDevice>
 struct AtomicAccessorRelaxed {
   using element_type = ElementType;
-  using reference =
-      desul::AtomicRef<ElementType, desul::MemoryOrderRelaxed, MemoryScope>;
+  static constexpr bool use_kokkos_atomic_accessor_ref =
+#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
+      true;
+#elif defined(KOKKOS_ENABLE_MACA)
+      std::is_same_v<MemorySpace, Kokkos::MacaSpace> ||
+      std::is_same_v<MemorySpace, Kokkos::MacaManagedSpace>;
+#else
+      false;
+#endif
+  using reference = std::conditional_t<
+      use_kokkos_atomic_accessor_ref,
+      KokkosAtomicAccessorRef<ElementType>,
+      desul::AtomicRef<ElementType, desul::MemoryOrderRelaxed, MemoryScope>>;
   using data_handle_type = ElementType*;
   using offset_policy    = AtomicAccessorRelaxed;
 
@@ -205,7 +466,15 @@ struct AtomicAccessorRelaxed {
             std::enable_if_t<std::is_convertible_v<
                 OtherElementType (*)[], element_type (*)[]>>* = nullptr>
   KOKKOS_FUNCTION constexpr AtomicAccessorRelaxed(
-      AtomicAccessorRelaxed<OtherElementType, MemoryScope>) noexcept {}
+      AtomicAccessorRelaxed<OtherElementType, MemorySpace, MemoryScope>)
+      noexcept {}
+
+  template <class OtherElementType, class OtherMemorySpace,
+            std::enable_if_t<std::is_convertible_v<
+                OtherElementType (*)[], element_type (*)[]>>* = nullptr>
+  KOKKOS_FUNCTION constexpr AtomicAccessorRelaxed(
+      AtomicAccessorRelaxed<OtherElementType, OtherMemorySpace, MemoryScope>)
+      noexcept {}
 
   template <class OtherElementType,
             std::enable_if_t<std::is_convertible_v<
@@ -460,13 +729,15 @@ using CheckedReferenceCountedAccessor =
 template <class ElementType, class MemorySpace,
           class MemoryScope = desul::MemoryScopeDevice>
 using CheckedRelaxedAtomicAccessor =
-    SpaceAwareAccessor<MemorySpace, AtomicAccessorRelaxed<ElementType>>;
+    SpaceAwareAccessor<MemorySpace,
+                       AtomicAccessorRelaxed<ElementType, MemorySpace>>;
 
 template <class ElementType, class MemorySpace,
           class MemoryScope = desul::MemoryScopeDevice>
 using CheckedReferenceCountedRelaxedAtomicAccessor = SpaceAwareAccessor<
     MemorySpace, ReferenceCountedAccessor<ElementType, MemorySpace,
-                                          AtomicAccessorRelaxed<ElementType>>>;
+                                          AtomicAccessorRelaxed<ElementType,
+                                                                MemorySpace>>>;
 
 }  // namespace Impl
 }  // namespace Kokkos

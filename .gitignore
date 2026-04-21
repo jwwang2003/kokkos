@@ -13,6 +13,7 @@ testing/
 /CMakeSettings.json
 /out/mytest
 CMakeUserPresets.json
+.DS_Store
 
 # build directories in source tree
 /build*
@@ -22,3 +23,6 @@ CMakeUserPresets.json
 /.vscode
 ## QtCreator
 /CMakeLists.txt.user*
+
+# Private folders and files
+references/maca/cu-bridge-kokkos

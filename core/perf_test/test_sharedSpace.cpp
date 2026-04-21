@@ -94,12 +94,14 @@ size_t getDeviceMemorySize() {
   return Kokkos::Cuda{}.cuda_device_prop().totalGlobalMem;
 #elif defined KOKKOS_ENABLE_HIP
   return Kokkos::HIP{}.hip_device_prop().totalGlobalMem;
+#elif defined KOKKOS_ENABLE_MACA
+  return Kokkos::Maca::maca_device_prop().totalGlobalMem;
 #elif defined KOKKOS_ENABLE_SYCL
   auto device = Kokkos::SYCL{}.sycl_queue().get_device();
   return device.get_info<sycl::info::device::global_mem_size>();
 #else
 #error \
-    "The sharedMemory test is only defined for Kokkos::Cuda, Kokkos::HIP, and Kokkos::SYCL"
+    "The sharedMemory test is only defined for Kokkos::Cuda, Kokkos::HIP, Kokkos::Maca, and Kokkos::SYCL"
   return 0;
 #endif
 }
@@ -292,9 +294,29 @@ int main(int argc, char* argv[]) {
   }
 
   Kokkos::initialize(argc, argv);
-  if constexpr (Kokkos::has_shared_space)
+  if constexpr (Kokkos::has_shared_space) {
+#if defined(KOKKOS_ENABLE_MACA)
+    auto const support = Kokkos::Impl::query_maca_managed_memory_support(
+        Kokkos::Maca().maca_device());
+    if (!support.fully_supported()) {
+      std::cout << "Skipping strict SharedSpace validation because "
+                   "MacaManagedSpace is not fully supported on this system.\n";
+      std::cout << "  hipDeviceAttributeManagedMemory: "
+                << support.has_managed_memory_attribute << "\n";
+      std::cout << "  hipDeviceAttributePageableMemoryAccess: "
+                << support.has_pageable_memory_access << "\n";
+      std::cout << "  gpu_arch_can_access_system_memory: "
+                << support.gpu_arch_can_access_system_memory << "\n";
+      std::cout << "  kernel_hmm_mirror_enabled: "
+                << support.hmm_mirror_enabled_in_kernel_config << "\n";
+      std::cout << "  xnack_enabled_in_environment: "
+                << support.xnack_enabled_in_environment << "\n";
+      Kokkos::finalize();
+      return 0;
+    }
+#endif
     test_sharedSpace(args);
-  else
+  } else
     std::cout
         << "The used Kokkos configuration does not support SharedSpace \n";
   Kokkos::finalize();

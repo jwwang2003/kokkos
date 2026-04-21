@@ -377,8 +377,8 @@ TEST_F(TEST_CATEGORY_FIXTURE(graph), zero_work_reduce) {
         NoOpReduceFunctor<TEST_EXECSPACE, int> no_op_functor;
         root.then_parallel_reduce(Kokkos::RangePolicy<TEST_EXECSPACE>(0, 0),
                                   no_op_functor, count)
-#if !defined(KOKKOS_ENABLE_CUDA) && \
-    !defined(KOKKOS_ENABLE_HIP)  // FIXME_CUDA FIXME_HIP
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP) && \
+    !defined(KOKKOS_ENABLE_MACA)  // FIXME_CUDA FIXME_HIP FIXME_MACA
             .then_parallel_reduce(
                 Kokkos::MDRangePolicy<TEST_EXECSPACE, Kokkos::Rank<2>>{{0, 0},
                                                                        {0, 0}},
@@ -1187,6 +1187,7 @@ template <typename Exec>
 struct GraphIsDefaulted<Kokkos::Experimental::Graph<Exec>> : std::true_type {};
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || \
+    defined(KOKKOS_ENABLE_MACA) ||                                      \
     (defined(KOKKOS_ENABLE_SYCL) && defined(KOKKOS_IMPL_SYCL_GRAPH_SUPPORT))
 template <>
 struct GraphIsDefaulted<

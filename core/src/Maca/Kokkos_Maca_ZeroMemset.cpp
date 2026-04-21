@@ -1,0 +1,32 @@
+/*================================================================
+*  Copyright (C)2026 All rights reserved.
+*  FileName : Kokkos_Maca_ZeroMemset.cpp
+*  Author   : jwwang2003
+*  Email    : wjw_03@outlook.com
+*  Date     : Fri 17 Apr 2026 11:58:39 AM CST
+================================================================*/
+
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// SPDX-FileCopyrightText: Copyright Contributors to the Kokkos project
+
+#ifndef KOKKOS_IMPL_PUBLIC_INCLUDE
+#define KOKKOS_IMPL_PUBLIC_INCLUDE
+#endif
+
+#include <Maca/Kokkos_Maca_ZeroMemset.hpp>
+#include <Maca/Kokkos_Maca_ParallelFor_Range.hpp>
+
+namespace Kokkos {
+namespace Impl {
+
+// alternative to macaMemsetAsync, which sets the first `cnt` bytes of `dst` to 0
+void zero_with_maca_kernel(const Maca& exec_space, void* dst, size_t cnt) {
+  Kokkos::parallel_for(
+      "Kokkos::ZeroMemset via parallel_for",
+      Kokkos::RangePolicy<Kokkos::Maca, Kokkos::IndexType<size_t>>(exec_space, 0,
+                                                                  cnt),
+      KOKKOS_LAMBDA(size_t i) { static_cast<char*>(dst)[i] = 0; });
+}
+
+}  // namespace Impl
+}  // namespace Kokkos

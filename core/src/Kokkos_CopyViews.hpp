@@ -90,8 +90,18 @@ template <class ViewType, class Layout, class ExecSpace, typename iType>
 struct ViewFill<ViewType, Layout, ExecSpace, 1, iType> {
   ViewType a;
   typename ViewType::const_value_type val;
+#ifdef KOKKOS_ENABLE_MACA
+  using work_item_property = std::conditional_t<
+      std::is_same_v<ExecSpace, Kokkos::Maca>,
+      Kokkos::Experimental::WorkItemProperty::ImplForceGlobalLaunch_t,
+      Kokkos::Experimental::WorkItemProperty::None_t>;
+#else
+  using work_item_property =
+      Kokkos::Experimental::WorkItemProperty::None_t;
+#endif
   using policy_type = Kokkos::RangePolicy<
       ExecSpace, Kokkos::IndexType<iType>,
+      work_item_property,
       Kokkos::Experimental::StaticBatchSize<ViewFillStaticBatchSize<
           ExecSpace, sizeof(typename ViewType::value_type)>::value>>;
 

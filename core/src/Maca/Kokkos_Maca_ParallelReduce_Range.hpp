@@ -1,0 +1,347 @@
+/*================================================================
+*  Copyright (C)2026 All rights reserved.
+*  FileName : Kokkos_Maca_ParallelReduce_Range.hpp
+*  Author   : jwwang2003
+*  Email    : wjw_03@outlook.com
+*  Date     : Fri 17 Apr 2026 11:58:39 AM CST
+================================================================*/
+
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// SPDX-FileCopyrightText: Copyright Contributors to the Kokkos project
+
+#ifndef KOKKOS_MACA_PARALLEL_REDUCE_RANGE_HPP
+#define KOKKOS_MACA_PARALLEL_REDUCE_RANGE_HPP
+
+#include <Kokkos_Parallel.hpp>
+
+#include <Maca/Kokkos_Maca_BlockSize_Deduction.hpp>
+#include <Maca/Kokkos_Maca_KernelLaunch.hpp>
+#include <Maca/Kokkos_Maca_ReduceScan.hpp>
+#include <Maca/Kokkos_Maca_Shuffle_Reduce.hpp>
+
+namespace Kokkos {
+namespace Impl {
+
+inline int maca_range_reduce_block_count(std::size_t nwork, int block_size,
+                                         int concurrency) {
+  if (block_size <= 0 || concurrency <= 0) return 0;
+
+  return static_cast<int>(std::min<std::size_t>(
+      concurrency / static_cast<std::size_t>(block_size),
+      (nwork + static_cast<std::size_t>(block_size) - 1) /
+          static_cast<std::size_t>(block_size)));
+}
+
+template <class CombinedFunctorReducerType, class... Traits>
+class ParallelReduce<CombinedFunctorReducerType, Kokkos::RangePolicy<Traits...>,
+                     Kokkos::Maca> {
+ public:
+  using Policy      = Kokkos::RangePolicy<Traits...>;
+  using FunctorType = typename CombinedFunctorReducerType::functor_type;
+  using ReducerType = typename CombinedFunctorReducerType::reducer_type;
+
+ private:
+  using WorkRange    = typename Policy::WorkRange;
+  using WorkTag      = typename Policy::work_tag;
+  using Member       = typename Policy::member_type;
+  using LaunchBounds = typename Policy::launch_bounds;
+
+ public:
+  using pointer_type   = typename ReducerType::pointer_type;
+  using value_type     = typename ReducerType::value_type;
+  using reference_type = typename ReducerType::reference_type;
+  using functor_type   = FunctorType;
+  using reducer_type   = ReducerType;
+  using size_type      = Kokkos::Maca::size_type;
+  using index_type     = typename Policy::index_type;
+  // Conditionally set word_size_type to int16_t or int8_t if value_type is
+  // smaller than int32_t (Kokkos::Maca::size_type)
+  // word_size_type is used to determine the word count, shared memory buffer
+  // size, and global memory buffer size before the scan is performed.
+  // Within the scan, the word count is recomputed based on word_size_type
+  // and when calculating indexes into the shared/global memory buffers for
+  // performing the scan, word_size_type is used again.
+  // For scalars > 4 bytes in size, indexing into shared/global memory relies
+  // on the block and grid dimensions to ensure that we index at the correct
+  // offset rather than at every 4 byte word; such that, when the join is
+  // performed, we have the correct data that was copied over in chunks of 4
+  // bytes.
+  using word_size_type = std::conditional_t<
+      sizeof(value_type) < sizeof(size_type),
+      std::conditional_t<sizeof(value_type) == 2, int16_t, int8_t>, size_type>;
+
+  // Algorithmic constraints: blockSize is a power of two AND blockDim.y ==
+  // blockDim.z == 1
+
+  const CombinedFunctorReducerType m_functor_reducer;
+  const Policy m_policy;
+  const pointer_type m_result_ptr;
+  const bool m_result_ptr_device_accessible;
+  const bool m_result_ptr_host_accessible;
+  word_size_type* m_scratch_space = nullptr;
+  size_type* m_scratch_flags      = nullptr;
+  word_size_type* m_unified_space = nullptr;
+
+  static constexpr bool UseShflReduction = false;
+
+ private:
+  struct ShflReductionTag {};
+  struct SHMEMReductionTag {};
+
+  // Make the exec_range calls call to Reduce::DeviceIterateTile
+  template <class TagType>
+  __device__ inline std::enable_if_t<std::is_void_v<TagType>> exec_range(
+      const Member& i, reference_type update) const {
+    m_functor_reducer.get_functor()(i, update);
+  }
+
+  template <class TagType>
+  __device__ inline std::enable_if_t<!std::is_void_v<TagType>> exec_range(
+      const Member& i, reference_type update) const {
+    m_functor_reducer.get_functor()(TagType(), i, update);
+  }
+
+ public:
+  Policy const& get_policy() const { return m_policy; }
+
+  __device__ inline void operator()() const {
+    using ReductionTag = std::conditional_t<UseShflReduction, ShflReductionTag,
+                                            SHMEMReductionTag>;
+    run(ReductionTag{});
+  }
+
+  __device__ inline void run(SHMEMReductionTag) const {
+    const ReducerType& reducer = m_functor_reducer.get_reducer();
+    const integral_nonzero_constant<word_size_type,
+                                    ReducerType::static_value_size() /
+                                        sizeof(word_size_type)>
+        word_count(reducer.value_size() / sizeof(word_size_type));
+
+    {
+      reference_type value = reducer.init(reinterpret_cast<pointer_type>(
+          ::Kokkos::kokkos_impl_maca_shared_memory<word_size_type>() +
+          threadIdx.y * word_count.value));
+
+      // Number of blocks is bounded so that the reduction can be limited to two
+      // passes. Each thread block is given an approximately equal amount of
+      // work to perform. Accumulate the values for this block. The accumulation
+      // ordering does not match the final pass, but is arithmetically
+      // equivalent.
+
+      const WorkRange range(m_policy, blockIdx.x, gridDim.x);
+
+      for (Member iwork = range.begin() + threadIdx.y, iwork_end = range.end();
+           iwork < iwork_end; iwork += blockDim.y) {
+        this->template exec_range<WorkTag>(iwork, value);
+      }
+    }
+
+    // Reduce with final value at blockDim.y - 1 location.
+    // Shortcut for length zero reduction
+    bool do_final_reduction = m_policy.begin() == m_policy.end();
+    if (!do_final_reduction)
+      do_final_reduction = maca_single_inter_block_reduce_scan<false>(
+          reducer, blockIdx.x, gridDim.x,
+          ::Kokkos::kokkos_impl_maca_shared_memory<word_size_type>(),
+          m_scratch_space, m_scratch_flags);
+    if (do_final_reduction) {
+      // This is the final block with the final result at the final threads'
+      // location
+
+      word_size_type* const shared =
+          ::Kokkos::kokkos_impl_maca_shared_memory<word_size_type>() +
+          (blockDim.y - 1) * word_count.value;
+      word_size_type* const global =
+          m_result_ptr_device_accessible
+              ? reinterpret_cast<word_size_type*>(m_result_ptr)
+              : (m_unified_space ? m_unified_space : m_scratch_space);
+
+      if (threadIdx.y == 0) {
+        reducer.final(reinterpret_cast<value_type*>(shared));
+      }
+
+      if (::Kokkos::Impl::MacaTraits::WarpSize < word_count.value) {
+        __syncthreads();
+      }
+
+      for (unsigned i = threadIdx.y; i < word_count.value; i += blockDim.y) {
+        global[i] = shared[i];
+      }
+    }
+  }
+
+  __device__ inline void run(ShflReductionTag) const {
+    const ReducerType& reducer = m_functor_reducer.get_reducer();
+
+    value_type value;
+    reducer.init(&value);
+    // Number of blocks is bounded so that the reduction can be limited to two
+    // passes. Each thread block is given an approximately equal amount of work
+    // to perform. Accumulate the values for this block. The accumulation
+    // ordering does not match the final pass, but is arithmetically equivalent.
+
+    WorkRange const range(m_policy, blockIdx.x, gridDim.x);
+
+    for (Member iwork = range.begin() + threadIdx.y, iwork_end = range.end();
+         iwork < iwork_end; iwork += blockDim.y) {
+      this->template exec_range<WorkTag>(iwork, value);
+    }
+
+    pointer_type const result = reinterpret_cast<pointer_type>(
+        m_unified_space ? m_unified_space : m_scratch_space);
+
+    int max_active_thread = static_cast<int>(range.end() - range.begin()) <
+                                    static_cast<int>(blockDim.y)
+                                ? range.end() - range.begin()
+                                : blockDim.y;
+
+    max_active_thread =
+        (max_active_thread == 0) ? blockDim.y : max_active_thread;
+
+    value_type init;
+    reducer.init(&init);
+    if (m_policy.begin() == m_policy.end()) {
+      reducer.final(&value);
+      pointer_type const final_result =
+          m_result_ptr_device_accessible ? m_result_ptr : result;
+      *final_result = value;
+    } else if (Impl::maca_inter_block_shuffle_reduction<>(
+                   value, init, reducer, m_scratch_space, result,
+                   m_scratch_flags, max_active_thread)) {
+      unsigned int const id = threadIdx.y * blockDim.x + threadIdx.x;
+      if (id == 0) {
+        reducer.final(&value);
+        pointer_type const final_result =
+            m_result_ptr_device_accessible ? m_result_ptr : result;
+        *final_result = value;
+      }
+    }
+  }
+
+  // Determine block size constrained by shared memory:
+  inline unsigned local_block_size(const FunctorType& f) {
+    const auto& instance = m_policy.space().impl_internal_space_instance();
+    auto shmem_functor   = [&f](unsigned n) {
+      return maca_single_inter_block_reduce_scan_shmem<false, WorkTag,
+                                                      value_type>(f, n);
+    };
+    constexpr auto light_weight =
+        Kokkos::Experimental::WorkItemProperty::HintLightWeight;
+    constexpr typename Policy::work_item_property property;
+    if constexpr ((property & light_weight) == light_weight) {
+      return Kokkos::Impl::maca_collective_block_size_or_zero(
+          Kokkos::Impl::maca_get_max_blocksize<ParallelReduce, LaunchBounds>(
+              instance, shmem_functor));
+    } else {
+      return Kokkos::Impl::maca_collective_block_size_or_zero(
+          Kokkos::Impl::maca_get_preferred_blocksize<ParallelReduce,
+                                                     LaunchBounds>(
+              instance, shmem_functor));
+    }
+  }
+
+  inline void execute() {
+    const ReducerType& reducer = m_functor_reducer.get_reducer();
+
+    const index_type nwork     = m_policy.end() - m_policy.begin();
+    const bool need_device_set = ReducerType::has_init_member_function() ||
+                                 ReducerType::has_final_member_function() ||
+                                 !m_result_ptr_host_accessible ||
+                                 !std::is_same<ReducerType, InvalidType>::value;
+    if ((nwork > 0) || need_device_set) {
+      const int block_size = local_block_size(m_functor_reducer.get_functor());
+      if (block_size == 0) {
+        const unsigned int shared_memory_required =
+            maca_single_inter_block_reduce_scan_shmem<false, WorkTag,
+                                                     value_type>(
+                m_functor_reducer.get_functor(), MacaTraits::WarpSize);
+        const unsigned int shared_memory_available =
+            m_policy.space()
+                .impl_internal_space_instance()
+                ->m_deviceProp.maxSharedMemoryPerMultiProcessor;
+        Kokkos::Impl::throw_runtime_exception(
+            std::string("Kokkos::Impl::ParallelReduce< Maca > could not find a "
+                        "valid execution configuration: your kernel requires " +
+                        std::to_string(shared_memory_required) +
+                        " bytes of shared memory per block but only " +
+                        std::to_string(shared_memory_available) +
+                        " bytes per block are available."));
+      }
+
+      // REQUIRED ( 1 , N , 1 )
+      dim3 block(1, block_size, 1);
+      index_type nblocks = static_cast<index_type>(maca_range_reduce_block_count(
+          static_cast<std::size_t>(nwork), block_size,
+          m_policy.space().concurrency()));
+
+      // TODO: down casting these uses more space than required?
+      m_scratch_space =
+          (word_size_type*)::Kokkos::Impl::maca_internal_scratch_space(
+              m_policy.space(), reducer.value_size() * nblocks);
+      // Intentionally do not downcast to word_size_type since we use Maca
+      // atomics in Kokkos_Maca_ReduceScan.hpp
+      m_scratch_flags = ::Kokkos::Impl::maca_internal_scratch_flags(
+          m_policy.space(), sizeof(size_type));
+      m_unified_space =
+          reinterpret_cast<word_size_type*>(
+              ::Kokkos::Impl::maca_internal_scratch_unified(
+                  m_policy.space(), reducer.value_size()));
+      // Required grid.x <= block.y
+      dim3 grid(nblocks, 1, 1);
+
+      if (nwork == 0) {
+        block = dim3(1, 1, 1);
+        grid  = dim3(1, 1, 1);
+      }
+      const int shmem =
+          UseShflReduction
+              ? 0
+              : maca_single_inter_block_reduce_scan_shmem<false, WorkTag,
+                                                         value_type>(
+                    m_functor_reducer.get_functor(), block.y);
+
+      Kokkos::Impl::maca_parallel_launch<ParallelReduce, LaunchBounds>(
+          *this, grid, block, shmem,
+          m_policy.space().impl_internal_space_instance(),
+          false);  // copy to device and execute
+
+      if (!m_result_ptr_device_accessible && m_result_ptr) {
+        if (m_unified_space) {
+          m_policy.space().fence(
+              "Kokkos::Impl::ParallelReduce<Maca, RangePolicy>::execute: "
+              "Result Not Device Accessible");
+          const int count = reducer.value_count();
+          for (int i = 0; i < count; ++i) {
+            m_result_ptr[i] = pointer_type(m_unified_space)[i];
+          }
+        } else {
+          const int size = reducer.value_size();
+          DeepCopy<HostSpace, MacaSpace, Maca>(m_policy.space(), m_result_ptr,
+                                               m_scratch_space, size);
+        }
+      }
+    } else {
+      if (m_result_ptr) {
+        reducer.init(m_result_ptr);
+      }
+    }
+  }
+
+  template <class ViewType>
+  ParallelReduce(const CombinedFunctorReducerType& arg_functor_reducer,
+                 const Policy& arg_policy, const ViewType& arg_result)
+      : m_functor_reducer(arg_functor_reducer),
+        m_policy(arg_policy),
+        m_result_ptr(arg_result.data()),
+        m_result_ptr_device_accessible(
+            MemorySpaceAccess<MacaSpace,
+                              typename ViewType::memory_space>::accessible),
+        m_result_ptr_host_accessible(
+            MemorySpaceAccess<Kokkos::HostSpace,
+                              typename ViewType::memory_space>::accessible) {}
+};
+
+}  // namespace Impl
+}  // namespace Kokkos
+
+#endif

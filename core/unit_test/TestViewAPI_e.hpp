@@ -25,6 +25,10 @@ TEST(TEST_CATEGORY, view_remap) {
 #define EXECSPACE                                                 \
   std::conditional_t<std::is_same_v<TEST_EXECSPACE, Kokkos::HIP>, \
                      Kokkos::HIPHostPinnedSpace, TEST_EXECSPACE>
+#elif defined(KOKKOS_ENABLE_MACA)
+#define EXECSPACE                                                  \
+  std::conditional_t<std::is_same_v<TEST_EXECSPACE, Kokkos::Maca>, \
+                     Kokkos::MacaHostPinnedSpace, TEST_EXECSPACE>
 #elif defined(KOKKOS_ENABLE_SYCL)
 #define EXECSPACE                                                  \
   std::conditional_t<std::is_same_v<TEST_EXECSPACE, Kokkos::SYCL>, \

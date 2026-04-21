@@ -87,6 +87,8 @@ namespace Kokkos {
 using DefaultExecutionSpace KOKKOS_IMPL_DEFAULT_EXEC_SPACE_ANNOTATION = Cuda;
 #elif defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_HIP)
 using DefaultExecutionSpace KOKKOS_IMPL_DEFAULT_EXEC_SPACE_ANNOTATION = HIP;
+#elif defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_MACA)
+using DefaultExecutionSpace KOKKOS_IMPL_DEFAULT_EXEC_SPACE_ANNOTATION = Maca;
 #elif defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_SYCL)
 using DefaultExecutionSpace KOKKOS_IMPL_DEFAULT_EXEC_SPACE_ANNOTATION = SYCL;
 #elif defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_OPENACC)
@@ -142,6 +144,9 @@ using SharedSpace = CudaUVMSpace;
 #elif defined(KOKKOS_ENABLE_HIP)
 using SharedSpace = HIPManagedSpace;
 #define KOKKOS_HAS_SHARED_SPACE
+#elif defined(KOKKOS_ENABLE_MACA)
+using SharedSpace = MacaManagedSpace;
+#define KOKKOS_HAS_SHARED_SPACE
 #elif defined(KOKKOS_ENABLE_SYCL)
 using SharedSpace = SYCLSharedUSMSpace;
 #define KOKKOS_HAS_SHARED_SPACE
@@ -163,6 +168,9 @@ using SharedHostPinnedSpace = CudaHostPinnedSpace;
 #define KOKKOS_HAS_SHARED_HOST_PINNED_SPACE
 #elif defined(KOKKOS_ENABLE_HIP)
 using SharedHostPinnedSpace = HIPHostPinnedSpace;
+#define KOKKOS_HAS_SHARED_HOST_PINNED_SPACE
+#elif defined(KOKKOS_ENABLE_MACA)
+using SharedHostPinnedSpace = MacaHostPinnedSpace;
 #define KOKKOS_HAS_SHARED_HOST_PINNED_SPACE
 #elif defined(KOKKOS_ENABLE_SYCL)
     using SharedHostPinnedSpace = SYCLHostUSMSpace;

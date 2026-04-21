@@ -68,12 +68,14 @@ endif()
 
 # all PerformanceTest_* executables are part of regular tests
 # TODO: finish converting these into benchmarks (in progress)
-if(KOKKOS_ENABLE_TESTS)
-  if(KOKKOS_ENABLE_CUDA OR KOKKOS_ENABLE_HIP OR KOKKOS_ENABLE_SYCL)
+if(KOKKOS_ENABLE_TESTS OR KOKKOS_ENABLE_BENCHMARKS)
+  if(KOKKOS_ENABLE_CUDA OR KOKKOS_ENABLE_HIP OR KOKKOS_ENABLE_MACA OR KOKKOS_ENABLE_SYCL)
     kokkos_add_executable(PerformanceTest_SharedSpace SOURCES test_sharedSpace.cpp)
   endif()
 
-  kokkos_include_directories(REQUIRED_DURING_INSTALLATION_TESTING ${CMAKE_CURRENT_SOURCE_DIR})
+  if(KOKKOS_ENABLE_TESTS)
+    kokkos_include_directories(REQUIRED_DURING_INSTALLATION_TESTING ${CMAKE_CURRENT_SOURCE_DIR})
+  endif()
 endif()
 
 set(BENCHMARK_SOURCES

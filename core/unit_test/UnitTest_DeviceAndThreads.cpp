@@ -12,6 +12,9 @@ import kokkos.core;
 #ifdef KOKKOS_ENABLE_OPENMP
 #include <omp.h>
 #endif
+#ifdef KOKKOS_ENABLE_MACA
+#include <Maca/Kokkos_Maca_Error.hpp>
+#endif
 
 #include <iostream>
 #include <string>
@@ -24,6 +27,8 @@ int get_num_devices() {
   KOKKOS_IMPL_CUDA_SAFE_CALL(cudaGetDeviceCount(&num_devices));
 #elif defined(KOKKOS_ENABLE_HIP)
   KOKKOS_IMPL_HIP_SAFE_CALL(hipGetDeviceCount(&num_devices));
+#elif defined(KOKKOS_ENABLE_MACA)
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaGetDeviceCount(&num_devices));
 #elif defined(KOKKOS_ENABLE_OPENACC)
   num_devices = acc_get_num_devices(acc_get_device_type());
 #elif defined(KOKKOS_ENABLE_SYCL)
@@ -41,6 +46,8 @@ int get_device_id() {
   KOKKOS_IMPL_CUDA_SAFE_CALL(cudaGetDevice(&device_id));
 #elif defined(KOKKOS_ENABLE_HIP)
   KOKKOS_IMPL_HIP_SAFE_CALL(hipGetDevice(&device_id));
+#elif defined(KOKKOS_ENABLE_MACA)
+  KOKKOS_IMPL_MACA_SAFE_CALL(macaGetDevice(&device_id));
 #elif defined(KOKKOS_ENABLE_OPENACC)
   device_id   = acc_get_device_num(acc_get_device_type());
 #elif defined(KOKKOS_ENABLE_SYCL)
