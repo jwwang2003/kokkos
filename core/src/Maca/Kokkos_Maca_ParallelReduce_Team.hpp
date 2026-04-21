@@ -1,3 +1,11 @@
+/*================================================================
+*  Copyright (C)2026 All rights reserved.
+*  FileName : Kokkos_Maca_ParallelReduce_Team.hpp
+*  Author   : jwwang2003
+*  Email    : wjw_03@outlook.com
+*  Date     : Fri 17 Apr 2026 11:58:39 AM CST
+================================================================*/
+
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // SPDX-FileCopyrightText: Copyright Contributors to the Kokkos project
 
@@ -17,7 +25,7 @@ namespace Impl {
 inline int maca_team_reduce_block_count(std::size_t league_size, int team_size,
                                         bool use_shfl_reduction) {
   const auto max_block_count =
-      use_shfl_reduction ? std::size_t(1024u * 32u)
+      use_shfl_reduction ? std::size_t(1024u * MacaTraits::WarpSize)
                          : std::size_t(std::max(team_size, 0));
   return std::max(1, static_cast<int>(std::min(league_size, max_block_count)));
 }

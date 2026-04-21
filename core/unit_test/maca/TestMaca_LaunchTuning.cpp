@@ -307,13 +307,21 @@ TEST(maca, team_reduce_block_count_matches_cuda_shuffle_path) {
   EXPECT_EQ(Kokkos::Impl::maca_team_reduce_block_count(0, 64, true), 1);
   EXPECT_EQ(Kokkos::Impl::maca_team_reduce_block_count(7, 64, true), 7);
   EXPECT_EQ(Kokkos::Impl::maca_team_reduce_block_count(50000, 64, true),
-            32768);
+            50000);
+  EXPECT_EQ(Kokkos::Impl::maca_team_reduce_block_count(100000, 64, true),
+            65536);
 }
 
 TEST(maca, team_reduce_block_count_matches_cuda_shared_memory_path) {
   EXPECT_EQ(Kokkos::Impl::maca_team_reduce_block_count(0, 64, false), 1);
   EXPECT_EQ(Kokkos::Impl::maca_team_reduce_block_count(7, 64, false), 7);
   EXPECT_EQ(Kokkos::Impl::maca_team_reduce_block_count(257, 64, false), 64);
+}
+
+TEST(maca, traits_assume_wave64) {
+  EXPECT_EQ(Kokkos::Impl::MacaTraits::WarpSize, 64);
+  EXPECT_EQ(Kokkos::Impl::MacaTraits::WarpIndexMask, 0x003f);
+  EXPECT_EQ(Kokkos::Impl::MacaTraits::WarpIndexShift, 6);
 }
 
 TEST(maca, range_blocksize_no_shmem_matches_explicit_occupancy_scan) {

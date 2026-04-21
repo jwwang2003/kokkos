@@ -15,6 +15,24 @@
 namespace Kokkos {
 namespace Impl {
 
+KOKKOS_FUNCTION constexpr unsigned int maca_shuffle_reduce_active_lane_count(
+    unsigned int max_active_thread, unsigned int vector_length,
+    unsigned int warp_size = MacaTraits::WarpSize) noexcept {
+  unsigned int const active_lanes = max_active_thread * vector_length;
+  return warp_size == 0u ? 0u
+         : active_lanes < warp_size ? active_lanes
+                                    : warp_size;
+}
+
+KOKKOS_FUNCTION constexpr unsigned long long maca_shuffle_reduce_active_mask(
+    unsigned int max_active_thread, unsigned int vector_length,
+    int lane, unsigned int warp_size = MacaTraits::WarpSize) noexcept {
+  return maca_shuffle_group_mask(
+      int(maca_shuffle_reduce_active_lane_count(max_active_thread,
+                                                vector_length, warp_size)),
+      lane, int(warp_size));
+}
+
 /* Algorithmic constraints:
  *   (a) threads with the same threadIdx.x have same value
  *   (b) blockDim.x == power of two
@@ -30,8 +48,9 @@ __device__ inline void maca_intra_warp_shuffle_reduction(
   constexpr unsigned int warp_size = MacaTraits::WarpSize;
   int const lane =
       (threadIdx.y * blockDim.x + threadIdx.x) % int(warp_size);
-  auto const mask =
-      Impl::maca_shuffle_group_mask(int(max_active_thread), lane, warp_size);
+  auto const mask = Impl::maca_shuffle_reduce_active_mask(
+      max_active_thread, static_cast<unsigned int>(blockDim.x), lane,
+      warp_size);
   while (blockDim.x * shift < warp_size) {
     ValueType const tmp =
         shfl_down(result, blockDim.x * shift, warp_size, mask);

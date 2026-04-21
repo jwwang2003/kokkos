@@ -9,6 +9,7 @@ import kokkos.core;
 #endif
 #include <TestMaca_Category.hpp>
 
+#include <Maca/Kokkos_Maca_Shuffle_Reduce.hpp>
 #include <Maca/Kokkos_Maca_Vectorization.hpp>
 
 #include <algorithm>
@@ -203,6 +204,22 @@ TEST(maca, shuffle_group_mask_wave64) {
             0xFF000000ULL);
   EXPECT_EQ(Kokkos::Impl::maca_shuffle_group_mask(8, 63),
             0xFF00000000000000ULL);
+}
+
+TEST(maca, shuffle_reduce_active_lane_count_is_vector_aware) {
+  EXPECT_EQ(Kokkos::Impl::maca_shuffle_reduce_active_lane_count(0, 4), 0);
+  EXPECT_EQ(Kokkos::Impl::maca_shuffle_reduce_active_lane_count(1, 4), 4);
+  EXPECT_EQ(Kokkos::Impl::maca_shuffle_reduce_active_lane_count(7, 4), 28);
+  EXPECT_EQ(Kokkos::Impl::maca_shuffle_reduce_active_lane_count(17, 4), 64);
+}
+
+TEST(maca, shuffle_reduce_active_mask_tracks_active_lanes) {
+  EXPECT_EQ(Kokkos::Impl::maca_shuffle_reduce_active_mask(7, 4, 0),
+            (1ULL << 28) - 1ULL);
+  EXPECT_EQ(Kokkos::Impl::maca_shuffle_reduce_active_mask(7, 4, 27),
+            (1ULL << 28) - 1ULL);
+  EXPECT_EQ(Kokkos::Impl::maca_shuffle_reduce_active_mask(17, 4, 0),
+            0xffffffffffffffffULL);
 }
 
 }  // namespace Test
