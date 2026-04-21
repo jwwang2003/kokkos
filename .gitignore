@@ -23,3 +23,6 @@ CMakeUserPresets.json
 /.vscode
 ## QtCreator
 /CMakeLists.txt.user*
+
+# Private folders and files
+references/maca/cu-bridge-kokkos

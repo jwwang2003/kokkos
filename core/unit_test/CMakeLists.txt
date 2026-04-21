@@ -667,6 +667,7 @@ if(Kokkos_ENABLE_MACA)
     maca/TestMaca_ViewRandomAccess.cpp
     maca/TestMaca_TeamCollectives.cpp
     maca/TestMaca_LaunchTuning.cpp
+    maca/TestMaca_DesulAtomicPredicatePath.cpp
   )
   kokkos_add_executable_and_test(
     CoreUnitTest_MacaInterOpGraph SOURCES UnitTestMainInit.cpp maca/TestMaca_InterOp_Graph.cpp

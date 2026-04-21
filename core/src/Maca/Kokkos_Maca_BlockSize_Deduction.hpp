@@ -1,3 +1,11 @@
+/*================================================================
+*  Copyright (C)2026 All rights reserved.
+*  FileName : Kokkos_Maca_BlockSize_Deduction.hpp
+*  Author   : jwwang2003
+*  Email    : wjw_03@outlook.com
+*  Date     : Fri 17 Apr 2026 12:06:25 PM CST
+================================================================*/
+
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // SPDX-FileCopyrightText: Copyright Contributors to the Kokkos project
 

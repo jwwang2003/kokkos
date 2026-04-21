@@ -16,42 +16,36 @@ import kokkos.core;
 
 namespace TestAtomicOperations {
 
+#ifdef KOKKOS_ENABLE_MACA
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeSystem>::value ==
+    memory_scope_system);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeNode>::value ==
+    memory_scope_system);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeDevice>::value ==
+    memory_scope_device);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeCore>::value ==
+    memory_scope_block);
+static_assert(
+    desul::Impl::MACAMemoryScope<desul::MemoryScopeCaller>::value ==
+    memory_scope_single_thread);
+#endif
+
 template <class T>
 KOKKOS_FUNCTION T atomic_fetch_inc_mod_compat(T* ptr, T wrap_value) {
-#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
-  T old = Kokkos::atomic_load(ptr);
-  while (true) {
-    T desired = old + 1 > wrap_value ? 0 : old + 1;
-    T prior   = Kokkos::atomic_compare_exchange(ptr, old, desired);
-    if (prior == old) {
-      return old;
-    }
-    old = prior;
-  }
-#else
   return desul::atomic_fetch_inc_mod(ptr, wrap_value,
                                      desul::MemoryOrderRelaxed(),
                                      desul::MemoryScopeDevice());
-#endif
 }
 
 template <class T>
 KOKKOS_FUNCTION T atomic_fetch_dec_mod_compat(T* ptr, T wrap_value) {
-#if defined(KOKKOS_ENABLE_MACA) && defined(__MACA_ARCH__)
-  T old = Kokkos::atomic_load(ptr);
-  while (true) {
-    T desired = ((old == 0) || (old > wrap_value)) ? wrap_value : old - 1;
-    T prior   = Kokkos::atomic_compare_exchange(ptr, old, desired);
-    if (prior == old) {
-      return old;
-    }
-    old = prior;
-  }
-#else
   return desul::atomic_fetch_dec_mod(ptr, wrap_value,
                                      desul::MemoryOrderRelaxed(),
                                      desul::MemoryScopeDevice());
-#endif
 }
 
 struct AddAtomicTest {

@@ -1,3 +1,11 @@
+/*================================================================
+*  Copyright (C)2026 All rights reserved.
+*  FileName : Kokkos_Maca.cpp
+*  Author   : jwwang2003
+*  Email    : wjw_03@outlook.com
+*  Date     : Fri 17 Apr 2026 11:58:39 AM CST
+================================================================*/
+
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // SPDX-FileCopyrightText: Copyright Contributors to the Kokkos project
 
