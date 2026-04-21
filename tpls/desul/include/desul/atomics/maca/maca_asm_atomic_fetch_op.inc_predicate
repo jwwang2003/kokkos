@@ -1,0 +1,14 @@
+/*================================================================
+*  Copyright (C)2026 All rights reserved.
+*  FileName : maca_asm_atomic_fetch_op.inc_predicate
+*  Author   : jwwang2003
+*  Email    : wjw_03@outlook.com
+*  Date     : Tue 21 Apr 2026 02:31:28 PM CST
+================================================================*/
+
+// The first-class MACA backend shares one implementation for both include paths (isglobal, predicate)
+// Operation-local comments in maca_asm_atomic_fetch_op.inc_isglobal document the
+// reference predicate spelling as well, including the `isspacep.global` guard
+// and the `@p` / `@!p atom.*` forms from cuda_cc7_asm_atomic_fetch_op.inc_predicate.
+#define DESUL_IMPL_MACA_PREDICATE_PATH_ACTIVE 1
+#include "maca_asm_atomic_fetch_op.inc_isglobal"

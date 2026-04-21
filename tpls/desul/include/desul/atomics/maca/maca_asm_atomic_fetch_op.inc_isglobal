@@ -1,0 +1,387 @@
+/*================================================================
+*  Copyright (C)2026 All rights reserved.
+*  FileName : maca_asm_atomic_fetch_op.inc_isglobal
+*  Author   : jwwang2003
+*  Email    : wjw_03@outlook.com
+*  Date     : Tue 21 Apr 2026 12:27:32 PM CST
+================================================================*/
+
+// The respective CUDA PTX implementation is kept & commented out (atom.* / red.* snippets)
+// next to the active __maca_atomic_* calls.
+// Those comments document the PTX-style instruction family the MACA API is standing in for.
+// This first-class MACA path uses the MACA API equivalents directly and does not
+// duplicate the inactive inline-asm blocks.
+
+template <class T>
+using maca_unsigned_bits_t =
+    std::conditional_t<sizeof(T) == 4, unsigned int, unsigned long long>;
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_integral<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_add(T* dest, T value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = old + value;
+    return old;
+  }
+  /*
+  Reference commented asm in maca_cc7_asm_atomic_fetch_op.inc_{isglobal,predicate}:
+    atom.add.global ... / atom.add ...   // asm_ctype = .u32/.u64/.s32/.s64
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.add.global ...
+      @!p atom.add ...
+  */
+  return __maca_atomic_fetch_add(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_integral<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_sub(T* dest, T value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = old - value;
+    return old;
+  }
+  /*
+  Reference commented asm in maca_cc7_asm_atomic_fetch_op.inc_{isglobal,predicate}:
+    atom.add.global ... / atom.add ...   // uses negated input for fetch_sub
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.add.global ...
+      @!p atom.add ...
+  */
+  return __maca_atomic_fetch_add(
+      dest, T(0) - value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+inline __device__ float device_atomic_fetch_add(
+    float* dest, float value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+    __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    float old = *dest;
+    *dest     = old + value;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.add.global ... / atom.add ...   // asm_ctype = .f32
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.add.global ...
+      @!p atom.add ...
+  */
+  return __maca_atomic_fetch_add(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+inline __device__ float device_atomic_fetch_sub(
+    float* dest, float value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+    __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    float old = *dest;
+    *dest     = old - value;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.add.global ... / atom.add ...   // negated input, asm_ctype = .f32
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.add.global ...
+      @!p atom.add ...
+  */
+  return __maca_atomic_fetch_add(
+      dest, -value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+inline __device__ double device_atomic_fetch_add(
+    double* dest, double value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+    __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    double old = *dest;
+    *dest      = old + value;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.add.global ... / atom.add ...   // asm_ctype = .f64
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.add.global ...
+      @!p atom.add ...
+  */
+  return __maca_atomic_fetch_add(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+inline __device__ double device_atomic_fetch_sub(
+    double* dest, double value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+    __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    double old = *dest;
+    *dest      = old - value;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.add.global ... / atom.add ...   // negated input, asm_ctype = .f64
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.add.global ...
+      @!p atom.add ...
+  */
+  return __maca_atomic_fetch_add(
+      dest, -value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_integral<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_min(T* dest, T value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = (old > value) ? value : old;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.min.global ... / atom.min ...
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.min.global ...
+      @!p atom.min ...
+  */
+  return __maca_atomic_fetch_min(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_integral<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_max(T* dest, T value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = (old < value) ? value : old;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.max.global ... / atom.max ...
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.max.global ...
+      @!p atom.max ...
+  */
+  return __maca_atomic_fetch_max(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_integral<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_and(T* dest, T value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = old & value;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.and.global ... / atom.and ...   // .b32 or .b64
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.and.global ...
+      @!p atom.and ...
+  */
+  return __maca_atomic_fetch_and(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_integral<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_or(T* dest, T value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                           __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = old | value;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.or.global ... / atom.or ...   // .b32 or .b64
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.or.global ...
+      @!p atom.or ...
+  */
+  return __maca_atomic_fetch_or(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_integral<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_xor(T* dest, T value, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = old ^ value;
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.xor.global ... / atom.xor ...   // .b32 or .b64
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.xor.global ...
+      @!p atom.xor ...
+  */
+  return __maca_atomic_fetch_xor(
+      dest, value, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value,
+      MACAMemoryScope<__DESUL_IMPL_MACA_MEMORY_SCOPE>::value);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_unsigned<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_inc_mod(T* dest, T limit, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                                __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  using bits_type = maca_unsigned_bits_t<T>;
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = (old >= limit) ? T(0) : old + T(1);
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.inc.global ... / atom.inc ...
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.inc.global ...
+      @!p atom.inc ...
+  */
+  auto* bits      = reinterpret_cast<bits_type*>(dest);
+  bits_type guess =
+      __atomic_load_n(bits, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value);
+  bits_type prior;
+  do {
+    prior =
+        __atomic_load_n(bits, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value);
+    if (guess != prior) {
+      guess = prior;
+      continue;
+    }
+    T old_value = maca_atomic_bit_cast<T>(guess);
+    T new_value = (old_value >= limit) ? T(0) : old_value + T(1);
+    guess       = atomicCAS(bits, guess, maca_atomic_bit_cast<bits_type>(new_value));
+    if (guess == prior) break;
+  } while (true);
+  return maca_atomic_bit_cast<T>(guess);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_unsigned<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_dec_mod(T* dest, T limit, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                                __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  using bits_type = maca_unsigned_bits_t<T>;
+  if (__isLocal(dest)) {
+    T old = *dest;
+    *dest = ((old == T(0)) || (old > limit)) ? limit : old - T(1);
+    return old;
+  }
+  /*
+  Reference commented asm:
+    atom.dec.global ... / atom.dec ...
+    predicate form:
+      isspacep.global p, %1;
+      @p  atom.dec.global ...
+      @!p atom.dec ...
+  */
+  auto* bits      = reinterpret_cast<bits_type*>(dest);
+  bits_type guess =
+      __atomic_load_n(bits, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value);
+  bits_type prior;
+  do {
+    prior =
+        __atomic_load_n(bits, MACAMemoryOrder<__DESUL_IMPL_MACA_MEMORY_ORDER>::value);
+    if (guess != prior) {
+      guess = prior;
+      continue;
+    }
+    T old_value = maca_atomic_bit_cast<T>(guess);
+    T new_value = ((old_value == T(0)) || (old_value > limit)) ? limit
+                                                                : old_value - T(1);
+    guess       = atomicCAS(bits, guess, maca_atomic_bit_cast<bits_type>(new_value));
+    if (guess == prior) break;
+  } while (true);
+  return maca_atomic_bit_cast<T>(guess);
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_unsigned<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_inc(T* dest, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  using limit_type =
+      typename std::conditional<sizeof(T) == 4, uint32_t, uint64_t>::type;
+  return device_atomic_fetch_inc_mod(
+      dest, static_cast<T>(numeric_limits_max<limit_type>::value),
+      __DESUL_IMPL_MACA_MEMORY_ORDER(),
+      __DESUL_IMPL_MACA_MEMORY_SCOPE());
+}
+
+template <class T>
+inline __device__
+    typename std::enable_if<std::is_unsigned<T>::value &&
+                                (sizeof(T) == 4 || sizeof(T) == 8),
+                            T>::type
+    device_atomic_fetch_dec(T* dest, __DESUL_IMPL_MACA_MEMORY_ORDER,
+                            __DESUL_IMPL_MACA_MEMORY_SCOPE) {
+  using limit_type =
+      typename std::conditional<sizeof(T) == 4, uint32_t, uint64_t>::type;
+  return device_atomic_fetch_dec_mod(
+      dest, static_cast<T>(numeric_limits_max<limit_type>::value),
+      __DESUL_IMPL_MACA_MEMORY_ORDER(),
+      __DESUL_IMPL_MACA_MEMORY_SCOPE());
+}
