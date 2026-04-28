@@ -9,7 +9,9 @@ pipeline {
 
     parameters {
         string(name: 'KOKKOS_SDK_PLATFORM', defaultValue: 'linux-x86_64-gcc13', description: 'Platform triplet recorded in the SDK name and manifest')
-        string(name: 'KOKKOS_SDK_CUDA_ARCHES', defaultValue: 'VOLTA70,AMPERE80,HOPPER90,BLACKWELL100', description: 'Comma-separated Kokkos CUDA architecture tokens for the single CUDA variant')
+        string(name: 'KOKKOS_SDK_CPU_ARCH', defaultValue: 'x86_64', description: 'Target CPU architecture label, for example x86_64 or aarch64')
+        string(name: 'KOKKOS_SDK_HOST_ARCH', defaultValue: '', description: 'Optional Kokkos host arch token, for example ARMV80, ARMV9_GRACE, ZEN4, or NATIVE')
+        string(name: 'KOKKOS_SDK_CUDA_ARCHES', defaultValue: 'VOLTA70,AMPERE80,HOPPER90,BLACKWELL120', description: 'Comma-separated Kokkos CUDA architecture tokens. Builds one CUDA SDK variant per token')
         booleanParam(name: 'BUILD_CUDA', defaultValue: true, description: 'Build the CUDA Kokkos SDK variant')
         booleanParam(name: 'BUILD_MACA', defaultValue: true, description: 'Build the MACA Kokkos SDK variant')
         booleanParam(name: 'PUBLISH_GITEA_PACKAGE', defaultValue: false, description: 'Publish the assembled SDK tarball to a Gitea Generic Package Registry')
@@ -42,6 +44,7 @@ pipeline {
                               scripts/package-kokkos-sdk.sh build \
                                 --backend cpu \
                                 --platform "${KOKKOS_SDK_PLATFORM}" \
+                                --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
                                 --work-dir "${SDK_WORK_DIR}" \
                                 --shared'''
                         stash name: 'kokkos-sdk-stage-cpu', includes: 'out/kokkos-sdk/stage/cpu/**'
@@ -56,7 +59,7 @@ pipeline {
                         dockerfile {
                             filename 'Dockerfile.nvcc'
                             dir 'scripts/docker'
-                            additionalBuildArgs '--build-arg BASE=nvcr.io/nvidia/cuda:12.2.2-devel-ubuntu22.04@sha256:5f603101462baa721ff6ddc44af82f6e9ba7cbd92a424c9f9f348e6e9d6d64c3 --build-arg ADDITIONAL_PACKAGES="gfortran clang" --build-arg CMAKE_VERSION=3.25.3'
+                            additionalBuildArgs '--build-arg BASE=nvcr.io/nvidia/cuda:12.8.0-devel-ubuntu24.04 --build-arg ADDITIONAL_PACKAGES="gfortran clang" --build-arg CMAKE_VERSION=3.30.0'
                             label 'nvidia-docker'
                             args '-v /tmp/ccache.kokkos:/tmp/ccache --env NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES --env NODE_NAME=${env.NODE_NAME} --env STAGE_NAME=${env.STAGE_NAME}'
                         }
@@ -71,10 +74,11 @@ pipeline {
                               scripts/package-kokkos-sdk.sh build \
                                 --backend cuda \
                                 --platform "${KOKKOS_SDK_PLATFORM}" \
+                                --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
                                 --cuda-arch-list "${KOKKOS_SDK_CUDA_ARCHES}" \
                                 --work-dir "${SDK_WORK_DIR}" \
                                 --shared'''
-                        stash name: 'kokkos-sdk-stage-cuda', includes: 'out/kokkos-sdk/stage/cuda/**'
+                        stash name: 'kokkos-sdk-stage-cuda', includes: 'out/kokkos-sdk/stage/cuda*/**'
                     }
                 }
 
@@ -92,6 +96,7 @@ pipeline {
                               scripts/package-kokkos-sdk.sh build \
                                 --backend maca \
                                 --platform "${KOKKOS_SDK_PLATFORM}" \
+                                --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
                                 --work-dir "${SDK_WORK_DIR}" \
                                 --shared'''
                         stash name: 'kokkos-sdk-stage-maca', includes: 'out/kokkos-sdk/stage/maca/**'
@@ -133,6 +138,8 @@ pipeline {
                       scripts/package-kokkos-sdk.sh assemble \
                         --backend "${KOKKOS_SDK_BACKENDS_FOR_ASSEMBLY}" \
                         --platform "${KOKKOS_SDK_PLATFORM}" \
+                        --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
+                        --cuda-arch-list "${KOKKOS_SDK_CUDA_ARCHES}" \
                         --work-dir "${SDK_WORK_DIR}"
 
                       mkdir -p "${SDK_TARBALL_DIR}"

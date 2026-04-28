@@ -1,0 +1,158 @@
+stages:
+  - build
+  - assemble
+  - publish
+
+variables:
+  KOKKOS_SDK_PLATFORM: "linux-x86_64-gcc13"
+  KOKKOS_SDK_CPU_ARCH: "x86_64"
+  KOKKOS_SDK_HOST_ARCH: ""
+  KOKKOS_SDK_CUDA_ARCHES: "VOLTA70,AMPERE80,HOPPER90,BLACKWELL120"
+  KOKKOS_SDK_WORK_DIR: "out/kokkos-sdk"
+  KOKKOS_SDK_ARTIFACT_DIR: "out/kokkos-sdk-artifacts"
+  KOKKOS_SDK_BUILD_CUDA: "true"
+  KOKKOS_SDK_BUILD_MACA: "true"
+
+.kokkos-sdk-build-artifacts:
+  artifacts:
+    expire_in: 7 days
+    when: on_success
+
+kokkos-sdk:build:cpu:
+  stage: build
+  image: gcc:13
+  extends: .kokkos-sdk-build-artifacts
+  before_script:
+    - apt-get update
+    - apt-get install -y cmake git make
+  script:
+    - |
+      set -euo pipefail
+      scripts/package-kokkos-sdk.sh build \
+        --backend cpu \
+        --platform "${KOKKOS_SDK_PLATFORM}" \
+        --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
+        --work-dir "${KOKKOS_SDK_WORK_DIR}" \
+        --shared
+  artifacts:
+    paths:
+      - out/kokkos-sdk/stage/cpu/
+
+kokkos-sdk:build:cuda:
+  stage: build
+  image: nvcr.io/nvidia/cuda:12.8.0-devel-ubuntu24.04
+  tags: [nvidia-docker]
+  extends: .kokkos-sdk-build-artifacts
+  rules:
+    - if: '$KOKKOS_SDK_BUILD_CUDA == "true"'
+    - when: never
+  before_script:
+    - apt-get update
+    - apt-get install -y cmake git make g++-11
+    - export NVCC_WRAPPER_DEFAULT_COMPILER=g++-11
+  script:
+    - |
+      set -euo pipefail
+      scripts/package-kokkos-sdk.sh build \
+        --backend cuda \
+        --platform "${KOKKOS_SDK_PLATFORM}" \
+        --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
+        --cuda-arch-list "${KOKKOS_SDK_CUDA_ARCHES}" \
+        --work-dir "${KOKKOS_SDK_WORK_DIR}" \
+        --shared
+  artifacts:
+    paths:
+      - out/kokkos-sdk/stage/cuda-*/
+
+kokkos-sdk:build:maca:
+  stage: build
+  tags: [maca]
+  extends: .kokkos-sdk-build-artifacts
+  rules:
+    - if: '$KOKKOS_SDK_BUILD_MACA == "true"'
+    - when: never
+  script:
+    - |
+      set -euo pipefail
+      scripts/package-kokkos-sdk.sh build \
+        --backend maca \
+        --platform "${KOKKOS_SDK_PLATFORM}" \
+        --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
+        --work-dir "${KOKKOS_SDK_WORK_DIR}" \
+        --shared
+  artifacts:
+    paths:
+      - out/kokkos-sdk/stage/maca/
+
+kokkos-sdk:assemble:
+  stage: assemble
+  image: gcc:13
+  needs:
+    - job: kokkos-sdk:build:cpu
+      artifacts: true
+    - job: kokkos-sdk:build:cuda
+      artifacts: true
+      optional: true
+    - job: kokkos-sdk:build:maca
+      artifacts: true
+      optional: true
+  before_script:
+    - apt-get update
+    - apt-get install -y cmake git make
+  script:
+    - |
+      set -euo pipefail
+      variants="cpu"
+      if [ -d "${KOKKOS_SDK_WORK_DIR}/stage/cuda" ]; then
+        variants="${variants},cuda"
+      fi
+      if find "${KOKKOS_SDK_WORK_DIR}/stage" -maxdepth 1 -type d -name 'cuda-*' | grep -q .; then
+        variants="${variants},cuda"
+      fi
+      if [ -d "${KOKKOS_SDK_WORK_DIR}/stage/maca" ]; then
+        variants="${variants},maca"
+      fi
+
+      scripts/package-kokkos-sdk.sh assemble \
+        --backend "${variants}" \
+        --platform "${KOKKOS_SDK_PLATFORM}" \
+        --cpu-arch "${KOKKOS_SDK_CPU_ARCH}" \
+        --cuda-arch-list "${KOKKOS_SDK_CUDA_ARCHES}" \
+        --work-dir "${KOKKOS_SDK_WORK_DIR}"
+
+      mkdir -p "${KOKKOS_SDK_ARTIFACT_DIR}"
+      sdk_dir="$(find "${KOKKOS_SDK_WORK_DIR}" -maxdepth 1 -type d -name 'kokkos-sdk-*' | sort | tail -1)"
+      sdk_name="$(basename "${sdk_dir}")"
+      tar -C "$(dirname "${sdk_dir}")" -czf "${KOKKOS_SDK_ARTIFACT_DIR}/${sdk_name}.tar.gz" "${sdk_name}"
+      sha256sum "${KOKKOS_SDK_ARTIFACT_DIR}/${sdk_name}.tar.gz" > "${KOKKOS_SDK_ARTIFACT_DIR}/${sdk_name}.tar.gz.sha256"
+      printf '%s\n' "${sdk_name}" > "${KOKKOS_SDK_ARTIFACT_DIR}/sdk-name.txt"
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - out/kokkos-sdk-artifacts/
+
+kokkos-sdk:publish:gitlab:
+  stage: publish
+  image: curlimages/curl:8.10.1
+  needs:
+    - job: kokkos-sdk:assemble
+      artifacts: true
+  rules:
+    - if: '$KOKKOS_SDK_PUBLISH_GITLAB == "true"'
+    - if: '$CI_COMMIT_TAG'
+    - when: never
+  script:
+    - |
+      set -euo pipefail
+      sdk_name="$(cat "${KOKKOS_SDK_ARTIFACT_DIR}/sdk-name.txt")"
+      sdk_version="${sdk_name#kokkos-sdk-}"
+      sdk_version="${sdk_version%-${KOKKOS_SDK_PLATFORM}}"
+      package_root="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kokkos-sdk/${sdk_version}"
+      curl --fail --show-error --location \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file "${KOKKOS_SDK_ARTIFACT_DIR}/${sdk_name}.tar.gz" \
+        "${package_root}/${sdk_name}.tar.gz"
+      curl --fail --show-error --location \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file "${KOKKOS_SDK_ARTIFACT_DIR}/${sdk_name}.tar.gz.sha256" \
+        "${package_root}/${sdk_name}.tar.gz.sha256"
